@@ -276,8 +276,54 @@ def remove_dead_air(
         add_removed(speech_chunks[-1][1], num_frames)
 
     # ── Stitch speech chunks ──────────────────
-    parts = [audio[fs * frame_size : fe * frame_size] for fs, fe in speech_chunks]
-    cleaned = np.concatenate(parts, axis=0)
+    # parts = [audio[fs * frame_size : fe * frame_size] for fs, fe in speech_chunks]
+    # cleaned = np.concatenate(parts, axis=0)
+
+        # ── Convert frame indices → exact sample indices ─────────
+    sample_chunks = []
+    last_end_sample = 0
+
+    for fs, fe in speech_chunks:
+        start_sample = int(fs * frame_size)
+        end_sample   = int(fe * frame_size)
+
+        # 🔴 CRITICAL: prevent overlap (fixes repetition)
+        start_sample = max(start_sample, last_end_sample)
+
+        if end_sample > start_sample:
+            sample_chunks.append((start_sample, end_sample))
+            last_end_sample = end_sample
+
+
+    # ── Crossfade stitching (removes clicks + fumble) ────────
+    def crossfade_concat(chunks, audio, sample_rate, fade_ms=8):
+        import numpy as np
+
+        fade_samples = int(sample_rate * fade_ms / 1000)
+
+        output = audio[chunks[0][0]:chunks[0][1]].copy()
+
+        for start, end in chunks[1:]:
+            segment = audio[start:end]
+
+            if len(output) > fade_samples and len(segment) > fade_samples:
+                fade_out = np.linspace(1, 0, fade_samples)
+                fade_in  = np.linspace(0, 1, fade_samples)
+
+                output[-fade_samples:] = (
+                    output[-fade_samples:] * fade_out +
+                    segment[:fade_samples] * fade_in
+                )
+
+                output = np.concatenate([output, segment[fade_samples:]], axis=0)
+            else:
+                output = np.concatenate([output, segment], axis=0)
+
+        return output
+
+
+    cleaned = crossfade_concat(sample_chunks, audio, sample_rate)
+
 
     cleaned_duration_s = len(cleaned) / sample_rate
     removed_s          = original_duration_s - cleaned_duration_s
