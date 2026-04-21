@@ -29,7 +29,7 @@ def check_dependencies():
 
 
 # ──────────────────────────────────────────────
-# FILE PICKER (WAV only)
+# FILE PICKER (WAV input)
 # ──────────────────────────────────────────────
 def select_file() -> str:
     import tkinter as tk
@@ -48,6 +48,47 @@ def select_file() -> str:
     )
     root.destroy()
     return file_path
+
+
+# ──────────────────────────────────────────────
+# SAVE AS DIALOG (WAV output)
+# ──────────────────────────────────────────────
+def save_file_dialog(default_name: str, initial_dir: str) -> str:
+    import tkinter as tk
+    from tkinter import filedialog
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+
+    output_path = filedialog.asksaveasfilename(
+        title="Save Cleaned Audio As",
+        initialdir=initial_dir,
+        initialfile=default_name,
+        defaultextension=".wav",
+        filetypes=[
+            ("WAV Files", "*.wav"),
+            ("All Files", "*.*"),
+        ]
+    )
+    root.destroy()
+    return output_path
+
+
+# ──────────────────────────────────────────────
+# OPEN OUTPUT FOLDER
+# ──────────────────────────────────────────────
+def open_folder(file_path: str):
+    """Open File Explorer / Finder at the folder containing the output file."""
+    import platform
+    folder = os.path.dirname(os.path.abspath(file_path))
+    system = platform.system()
+    if system == "Windows":
+        os.system(f'explorer /select,"{file_path}"')
+    elif system == "Darwin":
+        os.system(f'open -R "{file_path}"')
+    elif system == "Linux":
+        os.system(f'xdg-open "{folder}"')
 
 
 # ──────────────────────────────────────────────
@@ -80,30 +121,28 @@ def remove_dead_air(
     print(f"  Min silence to cut : {min_silence_ms} ms")
     print(f"  Scanning for speech chunks...")
 
-    # Calculate RMS in small frames (10ms windows)
+    # Calculate RMS in 10ms frames
     frame_ms   = 10
     frame_size = int(sample_rate * frame_ms / 1000)
     num_frames = len(mono) // frame_size
 
-    # Mark each frame as speech (True) or silence (False)
     is_speech = np.array([
         np.sqrt(np.mean(mono[i * frame_size:(i + 1) * frame_size] ** 2)) > silence_thresh
         for i in range(num_frames)
     ])
 
-    # Group consecutive speech frames into chunks
     min_silence_frames = max(1, min_silence_ms // frame_ms)
     padding_frames     = max(1, padding_ms // frame_ms)
 
     speech_chunks = []
-    in_speech = False
-    start = 0
+    in_speech     = False
+    start         = 0
     silence_count = 0
 
     for i, speech in enumerate(is_speech):
         if speech:
             if not in_speech:
-                start = max(0, i - padding_frames)
+                start     = max(0, i - padding_frames)
                 in_speech = True
             silence_count = 0
         else:
@@ -112,10 +151,9 @@ def remove_dead_air(
                 if silence_count >= min_silence_frames:
                     end = min(num_frames, i + padding_frames)
                     speech_chunks.append((start, end))
-                    in_speech = False
+                    in_speech     = False
                     silence_count = 0
 
-    # Catch chunk that runs to end of file
     if in_speech:
         speech_chunks.append((start, num_frames))
 
@@ -125,35 +163,46 @@ def remove_dead_air(
         print("  Keeping original file unchanged.")
         return file_path
 
-    # Stitch together speech chunks (sample-level)
+    # Stitch speech chunks
     parts = []
     for (fs, fe) in speech_chunks:
-        sample_start = fs * frame_size
-        sample_end   = fe * frame_size
-        parts.append(audio[sample_start:sample_end])
+        parts.append(audio[fs * frame_size : fe * frame_size])
 
     cleaned = np.concatenate(parts, axis=0)
 
     cleaned_duration_s = len(cleaned) / sample_rate
-    removed_s = original_duration_s - cleaned_duration_s
-    pct = (removed_s / original_duration_s) * 100
+    removed_s          = original_duration_s - cleaned_duration_s
+    pct                = (removed_s / original_duration_s) * 100
 
     print(f"\n  Speech chunks found : {len(speech_chunks)}")
     print(f"  Dead air removed    : {format_duration(removed_s)}  ({pct:.1f}%)")
     print(f"  New duration        : {format_duration(cleaned_duration_s)}")
 
-    base = os.path.splitext(file_path)[0]
-    output_path = f"{base}_cleaned.wav"
+    # ── Save As dialog ──────────────────────────
+    default_name = os.path.splitext(os.path.basename(file_path))[0] + "_cleaned.wav"
+    initial_dir  = os.path.dirname(os.path.abspath(file_path))
+
+    print(f"\n  Opening save dialog...")
+    output_path = save_file_dialog(default_name, initial_dir)
+
+    if not output_path:
+        # User cancelled — save next to original as fallback
+        output_path = os.path.join(initial_dir, default_name)
+        print(f"  Save cancelled — using default location.")
+
     sf.write(output_path, cleaned, sample_rate)
 
     print(f"\n  ✅ Saved: {output_path}")
     print(f"{'='*55}\n")
 
+    # Open folder so user can see the file immediately
+    open_folder(output_path)
+
     return output_path
 
 
 # ──────────────────────────────────────────────
-# PLAYBACK (winsound — built into Python, no deps)
+# PLAYBACK
 # ──────────────────────────────────────────────
 def play_audio(file_path: str):
     print(f"Playing: {os.path.basename(file_path)}")
