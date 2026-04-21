@@ -2,10 +2,16 @@
 """
 WAV Dead Air Remover — works on Python 3.14+
 Dependencies: numpy, soundfile  (no ffmpeg, no pydub)
+- Removes dead air from WAV files
+- Saves cleaned WAV output
+- Saves a detailed JSON + CSV report with timestamps of every removed segment
 """
 
 import sys
 import os
+import json
+import csv
+from datetime import datetime
 
 
 # ──────────────────────────────────────────────
@@ -51,7 +57,7 @@ def select_file() -> str:
 
 
 # ──────────────────────────────────────────────
-# SAVE AS DIALOG (WAV output)
+# SAVE AS DIALOG
 # ──────────────────────────────────────────────
 def save_file_dialog(default_name: str, initial_dir: str) -> str:
     import tkinter as tk
@@ -79,7 +85,6 @@ def save_file_dialog(default_name: str, initial_dir: str) -> str:
 # OPEN OUTPUT FOLDER
 # ──────────────────────────────────────────────
 def open_folder(file_path: str):
-    """Open File Explorer / Finder at the folder containing the output file."""
     import platform
     folder = os.path.dirname(os.path.abspath(file_path))
     system = platform.system()
@@ -92,13 +97,81 @@ def open_folder(file_path: str):
 
 
 # ──────────────────────────────────────────────
-# DEAD AIR REMOVAL (pure numpy — no pydub/ffmpeg)
+# HELPERS
+# ──────────────────────────────────────────────
+def format_duration(seconds: float) -> str:
+    m, s = divmod(int(seconds), 60)
+    h, m = divmod(m, 60)
+    if h:
+        return f"{h}h {m}m {s}s"
+    elif m:
+        return f"{m}m {s}s"
+    else:
+        return f"{s}s"
+
+def seconds_to_timestamp(seconds: float) -> str:
+    """Convert seconds to HH:MM:SS.mmm format."""
+    h  = int(seconds // 3600)
+    m  = int((seconds % 3600) // 60)
+    s  = int(seconds % 60)
+    ms = int((seconds % 1) * 1000)
+    return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
+
+
+# ──────────────────────────────────────────────
+# SAVE REPORT (JSON + CSV)
+# ──────────────────────────────────────────────
+def save_report(report: dict, output_audio_path: str):
+    """Save removal report as both JSON and CSV next to the output audio file."""
+    base = os.path.splitext(output_audio_path)[0]
+
+    # ── JSON ──────────────────────────────────
+    json_path = base + "_report.json"
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(report, f, indent=2)
+    print(f"  📄 JSON report : {json_path}")
+
+    # ── CSV ───────────────────────────────────
+    csv_path = base + "_report.csv"
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+
+        # Header block
+        writer.writerow(["=== Dead Air Removal Report ==="])
+        writer.writerow(["Generated",          report["generated_at"]])
+        writer.writerow(["Source File",         report["source_file"]])
+        writer.writerow(["Output File",         report["output_file"]])
+        writer.writerow(["Original Duration",   report["original_duration"]])
+        writer.writerow(["Cleaned Duration",    report["cleaned_duration"]])
+        writer.writerow(["Total Removed",       report["total_removed"]])
+        writer.writerow(["Removed %",           report["removed_percent"]])
+        writer.writerow(["Segments Removed",    report["segments_removed"]])
+        writer.writerow([])
+
+        # Removed segments table
+        writer.writerow(["#", "Start Timestamp", "End Timestamp", "Start (s)", "End (s)", "Duration (s)"])
+        for seg in report["removed_segments"]:
+            writer.writerow([
+                seg["index"],
+                seg["start_timestamp"],
+                seg["end_timestamp"],
+                f"{seg['start_sec']:.3f}",
+                f"{seg['end_sec']:.3f}",
+                f"{seg['duration_sec']:.3f}",
+            ])
+
+    print(f"  📊 CSV report  : {csv_path}")
+    return json_path, csv_path
+
+
+# ──────────────────────────────────────────────
+# DEAD AIR REMOVAL
 # ──────────────────────────────────────────────
 def remove_dead_air(
     file_path: str,
-    silence_thresh: float = 0.01,   # RMS amplitude 0.0–1.0 (0.01 = ~-40 dBFS)
-    min_silence_ms: int = 700,       # minimum silence duration to cut (ms)
-    padding_ms: int = 150,           # buffer kept around each speech chunk (ms)
+    silence_thresh: float = 0.01,
+    min_silence_ms: int   = 700,
+    padding_ms: int       = 150,
 ) -> str:
     import numpy as np
     import soundfile as sf
@@ -108,7 +181,6 @@ def remove_dead_air(
 
     audio, sample_rate = sf.read(file_path, dtype="float32")
 
-    # If stereo, convert to mono for analysis (keep stereo for output)
     if audio.ndim == 2:
         mono = audio.mean(axis=1)
     else:
@@ -121,7 +193,6 @@ def remove_dead_air(
     print(f"  Min silence to cut : {min_silence_ms} ms")
     print(f"  Scanning for speech chunks...")
 
-    # Calculate RMS in 10ms frames
     frame_ms   = 10
     frame_size = int(sample_rate * frame_ms / 1000)
     num_frames = len(mono) // frame_size
@@ -163,7 +234,57 @@ def remove_dead_air(
         print("  Keeping original file unchanged.")
         return file_path
 
-    # Stitch speech chunks
+    # ── Build removed segments (gaps BETWEEN speech chunks) ──
+    removed_segments = []
+    seg_index = 1
+
+    # Gap before first speech chunk
+    if speech_chunks[0][0] > 0:
+        start_s = 0.0
+        end_s   = (speech_chunks[0][0] * frame_size) / sample_rate
+        if end_s - start_s > 0.05:
+            removed_segments.append({
+                "index":           seg_index,
+                "start_sec":       round(start_s, 3),
+                "end_sec":         round(end_s, 3),
+                "duration_sec":    round(end_s - start_s, 3),
+                "start_timestamp": seconds_to_timestamp(start_s),
+                "end_timestamp":   seconds_to_timestamp(end_s),
+            })
+            seg_index += 1
+
+    # Gaps between consecutive speech chunks
+    for i in range(len(speech_chunks) - 1):
+        gap_start_frame = speech_chunks[i][1]
+        gap_end_frame   = speech_chunks[i + 1][0]
+        start_s = (gap_start_frame * frame_size) / sample_rate
+        end_s   = (gap_end_frame   * frame_size) / sample_rate
+        if end_s - start_s > 0.05:
+            removed_segments.append({
+                "index":           seg_index,
+                "start_sec":       round(start_s, 3),
+                "end_sec":         round(end_s, 3),
+                "duration_sec":    round(end_s - start_s, 3),
+                "start_timestamp": seconds_to_timestamp(start_s),
+                "end_timestamp":   seconds_to_timestamp(end_s),
+            })
+            seg_index += 1
+
+    # Gap after last speech chunk
+    if speech_chunks[-1][1] < num_frames:
+        start_s = (speech_chunks[-1][1] * frame_size) / sample_rate
+        end_s   = original_duration_s
+        if end_s - start_s > 0.05:
+            removed_segments.append({
+                "index":           seg_index,
+                "start_sec":       round(start_s, 3),
+                "end_sec":         round(end_s, 3),
+                "duration_sec":    round(end_s - start_s, 3),
+                "start_timestamp": seconds_to_timestamp(start_s),
+                "end_timestamp":   seconds_to_timestamp(end_s),
+            })
+
+    # ── Stitch speech chunks ──────────────────
     parts = []
     for (fs, fe) in speech_chunks:
         parts.append(audio[fs * frame_size : fe * frame_size])
@@ -178,7 +299,14 @@ def remove_dead_air(
     print(f"  Dead air removed    : {format_duration(removed_s)}  ({pct:.1f}%)")
     print(f"  New duration        : {format_duration(cleaned_duration_s)}")
 
-    # ── Save As dialog ──────────────────────────
+    # ── Print removed segments table ─────────
+    if removed_segments:
+        print(f"\n  {'#':<4} {'Start':<14} {'End':<14} {'Duration':>10}")
+        print(f"  {'-'*46}")
+        for seg in removed_segments:
+            print(f"  {seg['index']:<4} {seg['start_timestamp']:<14} {seg['end_timestamp']:<14} {seg['duration_sec']:>8.2f}s")
+
+    # ── Save As dialog ────────────────────────
     default_name = os.path.splitext(os.path.basename(file_path))[0] + "_cleaned.wav"
     initial_dir  = os.path.dirname(os.path.abspath(file_path))
 
@@ -186,16 +314,33 @@ def remove_dead_air(
     output_path = save_file_dialog(default_name, initial_dir)
 
     if not output_path:
-        # User cancelled — save next to original as fallback
         output_path = os.path.join(initial_dir, default_name)
         print(f"  Save cancelled — using default location.")
 
     sf.write(output_path, cleaned, sample_rate)
+    print(f"\n  ✅ Audio saved : {output_path}")
 
-    print(f"\n  ✅ Saved: {output_path}")
+    # ── Build and save report ─────────────────
+    report = {
+        "generated_at":      datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "source_file":       os.path.abspath(file_path),
+        "output_file":       os.path.abspath(output_path),
+        "sample_rate_hz":    sample_rate,
+        "silence_threshold": silence_thresh,
+        "min_silence_ms":    min_silence_ms,
+        "padding_ms":        padding_ms,
+        "original_duration": seconds_to_timestamp(original_duration_s),
+        "cleaned_duration":  seconds_to_timestamp(cleaned_duration_s),
+        "total_removed":     seconds_to_timestamp(removed_s),
+        "removed_percent":   f"{pct:.1f}%",
+        "segments_removed":  len(removed_segments),
+        "removed_segments":  removed_segments,
+    }
+
+    print()
+    save_report(report, output_path)
     print(f"{'='*55}\n")
 
-    # Open folder so user can see the file immediately
     open_folder(output_path)
 
     return output_path
@@ -223,20 +368,6 @@ def play_audio(file_path: str):
             print(f"Install aplay to play audio. File at:\n  {file_path}")
     else:
         print(f"File saved at:\n  {file_path}")
-
-
-# ──────────────────────────────────────────────
-# HELPER
-# ──────────────────────────────────────────────
-def format_duration(seconds: float) -> str:
-    m, s = divmod(int(seconds), 60)
-    h, m = divmod(m, 60)
-    if h:
-        return f"{h}h {m}m {s}s"
-    elif m:
-        return f"{m}m {s}s"
-    else:
-        return f"{s}s"
 
 
 # ──────────────────────────────────────────────
