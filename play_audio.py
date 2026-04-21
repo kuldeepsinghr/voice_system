@@ -11,7 +11,6 @@ aggressive or too soft regardless of recording volume.
 import sys
 import os
 import json
-import csv
 from datetime import datetime
 
 
@@ -115,35 +114,7 @@ def save_report(report: dict, output_audio_path: str):
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
     print(f"  📄 JSON report : {json_path}")
-
-    csv_path = base + "_report.csv"
-    with open(csv_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["=== Dead Air Removal Report ==="])
-        writer.writerow(["Generated",        report["generated_at"]])
-        writer.writerow(["Source File",       report["source_file"]])
-        writer.writerow(["Output File",       report["output_file"]])
-        writer.writerow(["Original Duration", report["original_duration"]])
-        writer.writerow(["Cleaned Duration",  report["cleaned_duration"]])
-        writer.writerow(["Total Removed",     report["total_removed"]])
-        writer.writerow(["Removed %",         report["removed_percent"]])
-        writer.writerow(["Segments Removed",  report["segments_removed"]])
-        writer.writerow(["Noise Floor RMS",   report["noise_floor_rms"]])
-        writer.writerow(["Auto Threshold RMS",report["auto_threshold_rms"]])
-        writer.writerow([])
-        writer.writerow(["#", "Start Timestamp", "End Timestamp",
-                         "Start (s)", "End (s)", "Duration (s)"])
-        for seg in report["removed_segments"]:
-            writer.writerow([
-                seg["index"],
-                seg["start_timestamp"],
-                seg["end_timestamp"],
-                f"{seg['start_sec']:.3f}",
-                f"{seg['end_sec']:.3f}",
-                f"{seg['duration_sec']:.3f}",
-            ])
-    print(f"  📊 CSV report  : {csv_path}")
-    return json_path, csv_path
+    return json_path
 
 
 # ──────────────────────────────────────────────
@@ -343,15 +314,12 @@ def remove_dead_air(
                   f"{seg['end_timestamp']:<15} {seg['duration_sec']:>8.2f}s")
 
     # ── Save As dialog ────────────────────────
+        # ── Save output automatically ─────────────
     default_name = os.path.splitext(os.path.basename(file_path))[0] + "_cleaned.wav"
     initial_dir  = os.path.dirname(os.path.abspath(file_path))
 
-    print(f"\n  Opening save dialog...")
-    output_path = save_file_dialog(default_name, initial_dir)
-
-    if not output_path:
-        output_path = os.path.join(initial_dir, default_name)
-        print(f"  Save cancelled — using default location.")
+    output_path = os.path.join(initial_dir, default_name)
+    print(f"\n  Saving automatically...")
 
     sf.write(output_path, cleaned, sample_rate)
     print(f"\n  ✅ Audio saved : {output_path}")
@@ -431,15 +399,7 @@ def main():
 
     cleaned_path = remove_dead_air(file_path)
 
-    answer = input("Play the cleaned audio now? [Y/n]: ").strip().lower()
-    if answer in ("", "y", "yes"):
-        try:
-            play_audio(cleaned_path)
-            print("\nPlayback finished.")
-        except KeyboardInterrupt:
-            print("\nPlayback stopped by user.")
-    else:
-        print(f"\nDone. File saved at:\n  {cleaned_path}")
+    print(f"\nDone. File saved at:\n  {cleaned_path}")
 
 
 if __name__ == "__main__":

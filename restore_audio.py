@@ -194,12 +194,15 @@ def restore(cleaned_wav: str, report_json: str) -> str:
     default_name = stem.replace("_cleaned", "_restored") + ".wav"
     initial_dir  = os.path.dirname(os.path.abspath(cleaned_wav))
 
-    print(f"\n  Opening save dialog...")
-    out_path = save_dialog(default_name, initial_dir)
+    # print(f"\n  Opening save dialog...")
+    # out_path = save_dialog(default_name, initial_dir)
 
-    if not out_path:
-        out_path = os.path.join(initial_dir, default_name)
-        print(f"  Cancelled — saving to default location.")
+    # if not out_path:
+    #     out_path = os.path.join(initial_dir, default_name)
+    #     print(f"  Cancelled — saving to default location.")
+
+    out_path = os.path.join(initial_dir, default_name)
+    print(f"\n  Saving automatically...")
 
     sf.write(out_path, restored, sample_rate)
 
@@ -267,15 +270,7 @@ def main():
     # ── Restore ───────────────────────────────
     restored_path = restore(cleaned_wav, report_json)
 
-    answer = input("Play the restored audio now? [Y/n]: ").strip().lower()
-    if answer in ("", "y", "yes"):
-        try:
-            play_audio(restored_path)
-            print("\nPlayback finished.")
-        except KeyboardInterrupt:
-            print("\nPlayback stopped by user.")
-    else:
-        print(f"\nDone. File saved at:\n  {restored_path}")
+    print(f"\nDone. File saved at:\n  {restored_path}")
 
 
 if __name__ == "__main__":
