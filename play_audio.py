@@ -2,9 +2,10 @@
 """
 WAV Dead Air Remover — works on Python 3.14+
 Dependencies: numpy, soundfile  (no ffmpeg, no pydub)
-- Removes dead air from WAV files
-- Saves cleaned WAV output
-- Saves a detailed JSON + CSV report with timestamps of every removed segment
+
+KEY FIX: Uses adaptive thresholding — automatically measures
+the noise floor of each file so the threshold is never too
+aggressive or too soft regardless of recording volume.
 """
 
 import sys
@@ -24,33 +25,26 @@ def check_dependencies():
             __import__(pkg)
         except ImportError:
             missing.append(pkg)
-
     if missing:
         print(f"ERROR: Missing packages: {', '.join(missing)}")
         print(f"Run:  pip install {' '.join(missing)}")
         sys.exit(1)
-
     print("  ✅ numpy ready")
     print("  ✅ soundfile ready")
 
 
 # ──────────────────────────────────────────────
-# FILE PICKER (WAV input)
+# FILE PICKER
 # ──────────────────────────────────────────────
 def select_file() -> str:
     import tkinter as tk
     from tkinter import filedialog
-
     root = tk.Tk()
     root.withdraw()
     root.attributes("-topmost", True)
-
     file_path = filedialog.askopenfilename(
         title="Select a WAV Audio File",
-        filetypes=[
-            ("WAV Files", "*.wav"),
-            ("All Files", "*.*"),
-        ]
+        filetypes=[("WAV Files", "*.wav"), ("All Files", "*.*")],
     )
     root.destroy()
     return file_path
@@ -62,20 +56,15 @@ def select_file() -> str:
 def save_file_dialog(default_name: str, initial_dir: str) -> str:
     import tkinter as tk
     from tkinter import filedialog
-
     root = tk.Tk()
     root.withdraw()
     root.attributes("-topmost", True)
-
     output_path = filedialog.asksaveasfilename(
         title="Save Cleaned Audio As",
         initialdir=initial_dir,
         initialfile=default_name,
         defaultextension=".wav",
-        filetypes=[
-            ("WAV Files", "*.wav"),
-            ("All Files", "*.*"),
-        ]
+        filetypes=[("WAV Files", "*.wav"), ("All Files", "*.*")],
     )
     root.destroy()
     return output_path
@@ -86,14 +75,13 @@ def save_file_dialog(default_name: str, initial_dir: str) -> str:
 # ──────────────────────────────────────────────
 def open_folder(file_path: str):
     import platform
-    folder = os.path.dirname(os.path.abspath(file_path))
     system = platform.system()
     if system == "Windows":
         os.system(f'explorer /select,"{file_path}"')
     elif system == "Darwin":
         os.system(f'open -R "{file_path}"')
     elif system == "Linux":
-        os.system(f'xdg-open "{folder}"')
+        os.system(f'xdg-open "{os.path.dirname(os.path.abspath(file_path))}"')
 
 
 # ──────────────────────────────────────────────
@@ -110,7 +98,6 @@ def format_duration(seconds: float) -> str:
         return f"{s}s"
 
 def seconds_to_timestamp(seconds: float) -> str:
-    """Convert seconds to HH:MM:SS.mmm format."""
     h  = int(seconds // 3600)
     m  = int((seconds % 3600) // 60)
     s  = int(seconds % 60)
@@ -122,34 +109,30 @@ def seconds_to_timestamp(seconds: float) -> str:
 # SAVE REPORT (JSON + CSV)
 # ──────────────────────────────────────────────
 def save_report(report: dict, output_audio_path: str):
-    """Save removal report as both JSON and CSV next to the output audio file."""
     base = os.path.splitext(output_audio_path)[0]
 
-    # ── JSON ──────────────────────────────────
     json_path = base + "_report.json"
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
     print(f"  📄 JSON report : {json_path}")
 
-    # ── CSV ───────────────────────────────────
     csv_path = base + "_report.csv"
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-
-        # Header block
         writer.writerow(["=== Dead Air Removal Report ==="])
-        writer.writerow(["Generated",          report["generated_at"]])
-        writer.writerow(["Source File",         report["source_file"]])
-        writer.writerow(["Output File",         report["output_file"]])
-        writer.writerow(["Original Duration",   report["original_duration"]])
-        writer.writerow(["Cleaned Duration",    report["cleaned_duration"]])
-        writer.writerow(["Total Removed",       report["total_removed"]])
-        writer.writerow(["Removed %",           report["removed_percent"]])
-        writer.writerow(["Segments Removed",    report["segments_removed"]])
+        writer.writerow(["Generated",        report["generated_at"]])
+        writer.writerow(["Source File",       report["source_file"]])
+        writer.writerow(["Output File",       report["output_file"]])
+        writer.writerow(["Original Duration", report["original_duration"]])
+        writer.writerow(["Cleaned Duration",  report["cleaned_duration"]])
+        writer.writerow(["Total Removed",     report["total_removed"]])
+        writer.writerow(["Removed %",         report["removed_percent"]])
+        writer.writerow(["Segments Removed",  report["segments_removed"]])
+        writer.writerow(["Noise Floor RMS",   report["noise_floor_rms"]])
+        writer.writerow(["Auto Threshold RMS",report["auto_threshold_rms"]])
         writer.writerow([])
-
-        # Removed segments table
-        writer.writerow(["#", "Start Timestamp", "End Timestamp", "Start (s)", "End (s)", "Duration (s)"])
+        writer.writerow(["#", "Start Timestamp", "End Timestamp",
+                         "Start (s)", "End (s)", "Duration (s)"])
         for seg in report["removed_segments"]:
             writer.writerow([
                 seg["index"],
@@ -159,9 +142,35 @@ def save_report(report: dict, output_audio_path: str):
                 f"{seg['end_sec']:.3f}",
                 f"{seg['duration_sec']:.3f}",
             ])
-
     print(f"  📊 CSV report  : {csv_path}")
     return json_path, csv_path
+
+
+# ──────────────────────────────────────────────
+# ADAPTIVE THRESHOLD
+# ──────────────────────────────────────────────
+def compute_adaptive_threshold(mono: "np.ndarray", sample_rate: int,
+                                frame_ms: int = 10,
+                                noise_percentile: int = 10,
+                                multiplier: float = 8.0) -> tuple:
+    """
+    Measure the actual noise floor of the file (10th percentile RMS)
+    and set the threshold at multiplier × noise_floor.
+    This works correctly regardless of how loud or quiet the recording is.
+    """
+    import numpy as np
+    frame_size = int(sample_rate * frame_ms / 1000)
+    num_frames = len(mono) // frame_size
+
+    rms_vals = np.array([
+        np.sqrt(np.mean(mono[i * frame_size:(i + 1) * frame_size] ** 2))
+        for i in range(num_frames)
+    ])
+
+    noise_floor = float(np.percentile(rms_vals, noise_percentile))
+    threshold   = noise_floor * multiplier
+
+    return threshold, noise_floor, rms_vals
 
 
 # ──────────────────────────────────────────────
@@ -169,9 +178,8 @@ def save_report(report: dict, output_audio_path: str):
 # ──────────────────────────────────────────────
 def remove_dead_air(
     file_path: str,
-    silence_thresh: float = 0.01,
-    min_silence_ms: int   = 700,
-    padding_ms: int       = 150,
+    min_silence_ms: int  = 700,
+    padding_ms: int      = 200,
 ) -> str:
     import numpy as np
     import soundfile as sf
@@ -189,21 +197,27 @@ def remove_dead_air(
     original_duration_s = len(mono) / sample_rate
     print(f"  Sample rate        : {sample_rate} Hz")
     print(f"  Original duration  : {format_duration(original_duration_s)}")
-    print(f"  Silence threshold  : {silence_thresh} RMS")
-    print(f"  Min silence to cut : {min_silence_ms} ms")
-    print(f"  Scanning for speech chunks...")
 
+    # ── Adaptive threshold ────────────────────
     frame_ms   = 10
     frame_size = int(sample_rate * frame_ms / 1000)
-    num_frames = len(mono) // frame_size
 
-    is_speech = np.array([
-        np.sqrt(np.mean(mono[i * frame_size:(i + 1) * frame_size] ** 2)) > silence_thresh
-        for i in range(num_frames)
-    ])
+    silence_thresh, noise_floor, rms_vals = compute_adaptive_threshold(
+        mono, sample_rate, frame_ms=frame_ms
+    )
+    num_frames = len(rms_vals)
+
+    print(f"  Noise floor (auto) : {noise_floor:.6f} RMS")
+    print(f"  Threshold  (auto)  : {silence_thresh:.6f} RMS  (8× noise floor)")
+    print(f"  Min silence to cut : {min_silence_ms} ms")
+    print(f"  Padding kept       : {padding_ms} ms")
+    print(f"  Scanning for speech chunks...")
+
+    # ── Detect speech vs silence ──────────────
+    is_speech = rms_vals > silence_thresh
 
     min_silence_frames = max(1, min_silence_ms // frame_ms)
-    padding_frames     = max(1, padding_ms // frame_ms)
+    padding_frames     = max(1, padding_ms     // frame_ms)
 
     speech_chunks = []
     in_speech     = False
@@ -229,66 +243,40 @@ def remove_dead_air(
         speech_chunks.append((start, num_frames))
 
     if not speech_chunks:
-        print("\n  WARNING: No speech detected.")
-        print("  Try lowering silence_thresh (e.g. 0.005).")
-        print("  Keeping original file unchanged.")
+        print("\n  WARNING: No speech detected. Keeping original file.")
         return file_path
 
-    # ── Build removed segments (gaps BETWEEN speech chunks) ──
+    # ── Build removed segments list ───────────
     removed_segments = []
     seg_index = 1
 
-    # Gap before first speech chunk
+    def add_removed(s_frame, e_frame):
+        nonlocal seg_index
+        start_s = (s_frame * frame_size) / sample_rate
+        end_s   = (e_frame * frame_size) / sample_rate
+        dur     = end_s - start_s
+        if dur > 0.1:
+            removed_segments.append({
+                "index":           seg_index,
+                "start_sec":       round(start_s, 3),
+                "end_sec":         round(end_s, 3),
+                "duration_sec":    round(dur, 3),
+                "start_timestamp": seconds_to_timestamp(start_s),
+                "end_timestamp":   seconds_to_timestamp(end_s),
+            })
+            seg_index += 1
+
     if speech_chunks[0][0] > 0:
-        start_s = 0.0
-        end_s   = (speech_chunks[0][0] * frame_size) / sample_rate
-        if end_s - start_s > 0.05:
-            removed_segments.append({
-                "index":           seg_index,
-                "start_sec":       round(start_s, 3),
-                "end_sec":         round(end_s, 3),
-                "duration_sec":    round(end_s - start_s, 3),
-                "start_timestamp": seconds_to_timestamp(start_s),
-                "end_timestamp":   seconds_to_timestamp(end_s),
-            })
-            seg_index += 1
+        add_removed(0, speech_chunks[0][0])
 
-    # Gaps between consecutive speech chunks
     for i in range(len(speech_chunks) - 1):
-        gap_start_frame = speech_chunks[i][1]
-        gap_end_frame   = speech_chunks[i + 1][0]
-        start_s = (gap_start_frame * frame_size) / sample_rate
-        end_s   = (gap_end_frame   * frame_size) / sample_rate
-        if end_s - start_s > 0.05:
-            removed_segments.append({
-                "index":           seg_index,
-                "start_sec":       round(start_s, 3),
-                "end_sec":         round(end_s, 3),
-                "duration_sec":    round(end_s - start_s, 3),
-                "start_timestamp": seconds_to_timestamp(start_s),
-                "end_timestamp":   seconds_to_timestamp(end_s),
-            })
-            seg_index += 1
+        add_removed(speech_chunks[i][1], speech_chunks[i + 1][0])
 
-    # Gap after last speech chunk
     if speech_chunks[-1][1] < num_frames:
-        start_s = (speech_chunks[-1][1] * frame_size) / sample_rate
-        end_s   = original_duration_s
-        if end_s - start_s > 0.05:
-            removed_segments.append({
-                "index":           seg_index,
-                "start_sec":       round(start_s, 3),
-                "end_sec":         round(end_s, 3),
-                "duration_sec":    round(end_s - start_s, 3),
-                "start_timestamp": seconds_to_timestamp(start_s),
-                "end_timestamp":   seconds_to_timestamp(end_s),
-            })
+        add_removed(speech_chunks[-1][1], num_frames)
 
     # ── Stitch speech chunks ──────────────────
-    parts = []
-    for (fs, fe) in speech_chunks:
-        parts.append(audio[fs * frame_size : fe * frame_size])
-
+    parts = [audio[fs * frame_size : fe * frame_size] for fs, fe in speech_chunks]
     cleaned = np.concatenate(parts, axis=0)
 
     cleaned_duration_s = len(cleaned) / sample_rate
@@ -296,15 +284,17 @@ def remove_dead_air(
     pct                = (removed_s / original_duration_s) * 100
 
     print(f"\n  Speech chunks found : {len(speech_chunks)}")
+    print(f"  Segments removed    : {len(removed_segments)}")
     print(f"  Dead air removed    : {format_duration(removed_s)}  ({pct:.1f}%)")
     print(f"  New duration        : {format_duration(cleaned_duration_s)}")
 
     # ── Print removed segments table ─────────
     if removed_segments:
-        print(f"\n  {'#':<4} {'Start':<14} {'End':<14} {'Duration':>10}")
-        print(f"  {'-'*46}")
+        print(f"\n  {'#':<5} {'Start':<15} {'End':<15} {'Duration':>10}")
+        print(f"  {'-'*48}")
         for seg in removed_segments:
-            print(f"  {seg['index']:<4} {seg['start_timestamp']:<14} {seg['end_timestamp']:<14} {seg['duration_sec']:>8.2f}s")
+            print(f"  {seg['index']:<5} {seg['start_timestamp']:<15} "
+                  f"{seg['end_timestamp']:<15} {seg['duration_sec']:>8.2f}s")
 
     # ── Save As dialog ────────────────────────
     default_name = os.path.splitext(os.path.basename(file_path))[0] + "_cleaned.wav"
@@ -320,21 +310,22 @@ def remove_dead_air(
     sf.write(output_path, cleaned, sample_rate)
     print(f"\n  ✅ Audio saved : {output_path}")
 
-    # ── Build and save report ─────────────────
+    # ── Save report ───────────────────────────
     report = {
-        "generated_at":      datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "source_file":       os.path.abspath(file_path),
-        "output_file":       os.path.abspath(output_path),
-        "sample_rate_hz":    sample_rate,
-        "silence_threshold": silence_thresh,
-        "min_silence_ms":    min_silence_ms,
-        "padding_ms":        padding_ms,
-        "original_duration": seconds_to_timestamp(original_duration_s),
-        "cleaned_duration":  seconds_to_timestamp(cleaned_duration_s),
-        "total_removed":     seconds_to_timestamp(removed_s),
-        "removed_percent":   f"{pct:.1f}%",
-        "segments_removed":  len(removed_segments),
-        "removed_segments":  removed_segments,
+        "generated_at":       datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "source_file":        os.path.abspath(file_path),
+        "output_file":        os.path.abspath(output_path),
+        "sample_rate_hz":     sample_rate,
+        "noise_floor_rms":    f"{noise_floor:.8f}",
+        "auto_threshold_rms": f"{silence_thresh:.8f}",
+        "min_silence_ms":     min_silence_ms,
+        "padding_ms":         padding_ms,
+        "original_duration":  seconds_to_timestamp(original_duration_s),
+        "cleaned_duration":   seconds_to_timestamp(cleaned_duration_s),
+        "total_removed":      seconds_to_timestamp(removed_s),
+        "removed_percent":    f"{pct:.1f}%",
+        "segments_removed":   len(removed_segments),
+        "removed_segments":   removed_segments,
     }
 
     print()
@@ -342,7 +333,6 @@ def remove_dead_air(
     print(f"{'='*55}\n")
 
     open_folder(output_path)
-
     return output_path
 
 
@@ -352,10 +342,8 @@ def remove_dead_air(
 def play_audio(file_path: str):
     print(f"Playing: {os.path.basename(file_path)}")
     print("Press Ctrl+C to stop.\n")
-
     import platform
     system = platform.system()
-
     if system == "Windows":
         import winsound
         winsound.PlaySound(file_path, winsound.SND_FILENAME)
@@ -364,8 +352,6 @@ def play_audio(file_path: str):
     elif system == "Linux":
         if os.system("which aplay > /dev/null 2>&1") == 0:
             os.system(f'aplay "{file_path}"')
-        else:
-            print(f"Install aplay to play audio. File at:\n  {file_path}")
     else:
         print(f"File saved at:\n  {file_path}")
 
