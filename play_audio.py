@@ -3,9 +3,10 @@
 WAV Dead Air Remover — works on Python 3.14+
 Dependencies: numpy, soundfile  (no ffmpeg, no pydub)
 
-KEY FIX: Uses adaptive thresholding — automatically measures
-the noise floor of each file so the threshold is never too
-aggressive or too soft regardless of recording volume.
+- Supports multiple file selection
+- User chooses output folder once for all files
+- Adaptive thresholding per file
+- JSON report saved per file
 """
 
 import sys
@@ -33,40 +34,37 @@ def check_dependencies():
 
 
 # ──────────────────────────────────────────────
-# FILE PICKER
+# FILE PICKER  — multiple files
 # ──────────────────────────────────────────────
-def select_file() -> str:
+def select_files() -> list:
     import tkinter as tk
     from tkinter import filedialog
     root = tk.Tk()
     root.withdraw()
     root.attributes("-topmost", True)
-    file_path = filedialog.askopenfilename(
-        title="Select a WAV Audio File",
+    paths = filedialog.askopenfilenames(
+        title="Select WAV File(s) — hold Ctrl to select multiple",
         filetypes=[("WAV Files", "*.wav"), ("All Files", "*.*")],
     )
     root.destroy()
-    return file_path
+    return list(paths)
 
 
 # ──────────────────────────────────────────────
-# SAVE AS DIALOG
+# OUTPUT FOLDER PICKER
 # ──────────────────────────────────────────────
-def save_file_dialog(default_name: str, initial_dir: str) -> str:
+def select_output_folder(initial_dir: str) -> str:
     import tkinter as tk
     from tkinter import filedialog
     root = tk.Tk()
     root.withdraw()
     root.attributes("-topmost", True)
-    output_path = filedialog.asksaveasfilename(
-        title="Save Cleaned Audio As",
+    folder = filedialog.askdirectory(
+        title="Choose folder to save cleaned files",
         initialdir=initial_dir,
-        initialfile=default_name,
-        defaultextension=".wav",
-        filetypes=[("WAV Files", "*.wav"), ("All Files", "*.*")],
     )
     root.destroy()
-    return output_path
+    return folder
 
 
 # ──────────────────────────────────────────────
@@ -105,11 +103,10 @@ def seconds_to_timestamp(seconds: float) -> str:
 
 
 # ──────────────────────────────────────────────
-# SAVE REPORT (JSON + CSV)
+# SAVE REPORT (JSON)
 # ──────────────────────────────────────────────
 def save_report(report: dict, output_audio_path: str):
-    base = os.path.splitext(output_audio_path)[0]
-
+    base      = os.path.splitext(output_audio_path)[0]
     json_path = base + "_report.json"
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
@@ -120,54 +117,62 @@ def save_report(report: dict, output_audio_path: str):
 # ──────────────────────────────────────────────
 # ADAPTIVE THRESHOLD
 # ──────────────────────────────────────────────
-def compute_adaptive_threshold(mono: "np.ndarray", sample_rate: int,
+def compute_adaptive_threshold(mono, sample_rate: int,
                                 frame_ms: int = 10,
                                 noise_percentile: int = 10,
                                 multiplier: float = 8.0) -> tuple:
-    """
-    Measure the actual noise floor of the file (10th percentile RMS)
-    and set the threshold at multiplier × noise_floor.
-    This works correctly regardless of how loud or quiet the recording is.
-    """
     import numpy as np
     frame_size = int(sample_rate * frame_ms / 1000)
     num_frames = len(mono) // frame_size
-
     rms_vals = np.array([
         np.sqrt(np.mean(mono[i * frame_size:(i + 1) * frame_size] ** 2))
         for i in range(num_frames)
     ])
-
     noise_floor = float(np.percentile(rms_vals, noise_percentile))
     threshold   = noise_floor * multiplier
-
     return threshold, noise_floor, rms_vals
 
 
 # ──────────────────────────────────────────────
-# DEAD AIR REMOVAL
+# CROSSFADE CONCAT
 # ──────────────────────────────────────────────
-def remove_dead_air(
-    file_path: str,
-    min_silence_ms: int  = 700,
-    padding_ms: int      = 200,
-) -> str:
+def crossfade_concat(chunks, audio, sample_rate, fade_ms=8):
+    import numpy as np
+    fade_samples = int(sample_rate * fade_ms / 1000)
+    output = audio[chunks[0][0]:chunks[0][1]].copy()
+    for start, end in chunks[1:]:
+        segment = audio[start:end]
+        if len(output) > fade_samples and len(segment) > fade_samples:
+            fade_out = np.linspace(1, 0, fade_samples)
+            fade_in  = np.linspace(0, 1, fade_samples)
+            output[-fade_samples:] = (
+                output[-fade_samples:] * fade_out +
+                segment[:fade_samples] * fade_in
+            )
+            output = np.concatenate([output, segment[fade_samples:]], axis=0)
+        else:
+            output = np.concatenate([output, segment], axis=0)
+    return output
+
+
+# ──────────────────────────────────────────────
+# PROCESS ONE FILE
+# ──────────────────────────────────────────────
+def remove_dead_air(file_path: str, output_dir: str,
+                    min_silence_ms: int = 700,
+                    padding_ms: int = 200) -> str:
     import numpy as np
     import soundfile as sf
 
     print(f"\n{'='*55}")
-    print(f"  Loading : {os.path.basename(file_path)}")
+    print(f"  File    : {os.path.basename(file_path)}")
 
     audio, sample_rate = sf.read(file_path, dtype="float32")
 
-    if audio.ndim == 2:
-        mono = audio.mean(axis=1)
-    else:
-        mono = audio
-
+    mono = audio.mean(axis=1) if audio.ndim == 2 else audio
     original_duration_s = len(mono) / sample_rate
-    print(f"  Sample rate        : {sample_rate} Hz")
-    print(f"  Original duration  : {format_duration(original_duration_s)}")
+
+    print(f"  Duration: {format_duration(original_duration_s)}")
 
     # ── Adaptive threshold ────────────────────
     frame_ms   = 10
@@ -179,14 +184,11 @@ def remove_dead_air(
     num_frames = len(rms_vals)
 
     print(f"  Noise floor (auto) : {noise_floor:.6f} RMS")
-    print(f"  Threshold  (auto)  : {silence_thresh:.6f} RMS  (8× noise floor)")
-    print(f"  Min silence to cut : {min_silence_ms} ms")
-    print(f"  Padding kept       : {padding_ms} ms")
-    print(f"  Scanning for speech chunks...")
+    print(f"  Threshold  (auto)  : {silence_thresh:.6f} RMS")
+    print(f"  Scanning...")
 
-    # ── Detect speech vs silence ──────────────
-    is_speech = rms_vals > silence_thresh
-
+    # ── Detect speech chunks ──────────────────
+    is_speech          = rms_vals > silence_thresh
     min_silence_frames = max(1, min_silence_ms // frame_ms)
     padding_frames     = max(1, padding_ms     // frame_ms)
 
@@ -214,10 +216,10 @@ def remove_dead_air(
         speech_chunks.append((start, num_frames))
 
     if not speech_chunks:
-        print("\n  WARNING: No speech detected. Keeping original file.")
-        return file_path
+        print("  WARNING: No speech detected. Skipping file.")
+        return None
 
-    # ── Build removed segments list ───────────
+    # ── Build removed segments ────────────────
     removed_segments = []
     seg_index = 1
 
@@ -239,73 +241,32 @@ def remove_dead_air(
 
     if speech_chunks[0][0] > 0:
         add_removed(0, speech_chunks[0][0])
-
     for i in range(len(speech_chunks) - 1):
         add_removed(speech_chunks[i][1], speech_chunks[i + 1][0])
-
     if speech_chunks[-1][1] < num_frames:
         add_removed(speech_chunks[-1][1], num_frames)
 
-    # ── Stitch speech chunks ──────────────────
-    # parts = [audio[fs * frame_size : fe * frame_size] for fs, fe in speech_chunks]
-    # cleaned = np.concatenate(parts, axis=0)
-
-        # ── Convert frame indices → exact sample indices ─────────
-    sample_chunks = []
+    # ── Crossfade stitch ─────────────────────
+    sample_chunks   = []
     last_end_sample = 0
-
     for fs, fe in speech_chunks:
-        start_sample = int(fs * frame_size)
+        start_sample = max(int(fs * frame_size), last_end_sample)
         end_sample   = int(fe * frame_size)
-
-        # 🔴 CRITICAL: prevent overlap (fixes repetition)
-        start_sample = max(start_sample, last_end_sample)
-
         if end_sample > start_sample:
             sample_chunks.append((start_sample, end_sample))
             last_end_sample = end_sample
 
-
-    # ── Crossfade stitching (removes clicks + fumble) ────────
-    def crossfade_concat(chunks, audio, sample_rate, fade_ms=8):
-        import numpy as np
-
-        fade_samples = int(sample_rate * fade_ms / 1000)
-
-        output = audio[chunks[0][0]:chunks[0][1]].copy()
-
-        for start, end in chunks[1:]:
-            segment = audio[start:end]
-
-            if len(output) > fade_samples and len(segment) > fade_samples:
-                fade_out = np.linspace(1, 0, fade_samples)
-                fade_in  = np.linspace(0, 1, fade_samples)
-
-                output[-fade_samples:] = (
-                    output[-fade_samples:] * fade_out +
-                    segment[:fade_samples] * fade_in
-                )
-
-                output = np.concatenate([output, segment[fade_samples:]], axis=0)
-            else:
-                output = np.concatenate([output, segment], axis=0)
-
-        return output
-
-
     cleaned = crossfade_concat(sample_chunks, audio, sample_rate)
-
 
     cleaned_duration_s = len(cleaned) / sample_rate
     removed_s          = original_duration_s - cleaned_duration_s
     pct                = (removed_s / original_duration_s) * 100
 
-    print(f"\n  Speech chunks found : {len(speech_chunks)}")
-    print(f"  Segments removed    : {len(removed_segments)}")
-    print(f"  Dead air removed    : {format_duration(removed_s)}  ({pct:.1f}%)")
-    print(f"  New duration        : {format_duration(cleaned_duration_s)}")
+    print(f"  Speech chunks   : {len(speech_chunks)}")
+    print(f"  Dead air removed: {format_duration(removed_s)}  ({pct:.1f}%)")
+    print(f"  New duration    : {format_duration(cleaned_duration_s)}")
 
-    # ── Print removed segments table ─────────
+    # ── Print segments table ──────────────────
     if removed_segments:
         print(f"\n  {'#':<5} {'Start':<15} {'End':<15} {'Duration':>10}")
         print(f"  {'-'*48}")
@@ -313,18 +274,14 @@ def remove_dead_air(
             print(f"  {seg['index']:<5} {seg['start_timestamp']:<15} "
                   f"{seg['end_timestamp']:<15} {seg['duration_sec']:>8.2f}s")
 
-    # ── Save As dialog ────────────────────────
-        # ── Save output automatically ─────────────
-    default_name = os.path.splitext(os.path.basename(file_path))[0] + "_cleaned.wav"
-    initial_dir  = os.path.dirname(os.path.abspath(file_path))
-
-    output_path = os.path.join(initial_dir, default_name)
-    print(f"\n  Saving automatically...")
-
+    # ── Save cleaned audio ────────────────────
+    stem        = os.path.splitext(os.path.basename(file_path))[0]
+    output_path = os.path.join(output_dir, stem + "_cleaned.wav")
+    import soundfile as sf
     sf.write(output_path, cleaned, sample_rate)
-    print(f"\n  ✅ Audio saved : {output_path}")
+    print(f"\n  ✅ Saved : {output_path}")
 
-    # ── Save report ───────────────────────────
+    # ── Save JSON report ──────────────────────
     report = {
         "generated_at":       datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "source_file":        os.path.abspath(file_path),
@@ -341,33 +298,10 @@ def remove_dead_air(
         "segments_removed":   len(removed_segments),
         "removed_segments":   removed_segments,
     }
-
-    print()
     save_report(report, output_path)
-    print(f"{'='*55}\n")
+    print(f"{'='*55}")
 
-    open_folder(output_path)
     return output_path
-
-
-# ──────────────────────────────────────────────
-# PLAYBACK
-# ──────────────────────────────────────────────
-def play_audio(file_path: str):
-    print(f"Playing: {os.path.basename(file_path)}")
-    print("Press Ctrl+C to stop.\n")
-    import platform
-    system = platform.system()
-    if system == "Windows":
-        import winsound
-        winsound.PlaySound(file_path, winsound.SND_FILENAME)
-    elif system == "Darwin":
-        os.system(f'afplay "{file_path}"')
-    elif system == "Linux":
-        if os.system("which aplay > /dev/null 2>&1") == 0:
-            os.system(f'aplay "{file_path}"')
-    else:
-        print(f"File saved at:\n  {file_path}")
 
 
 # ──────────────────────────────────────────────
@@ -379,27 +313,78 @@ def main():
 
     check_dependencies()
 
-    if len(sys.argv) >= 2:
-        file_path = sys.argv[1]
-    else:
-        print("\n  Opening file picker...")
-        file_path = select_file()
+    # ── Step 1: Select files ──────────────────
+    print("\n  Step 1 — Select WAV file(s)  [hold Ctrl for multiple]:")
+    file_paths = select_files()
 
-    if not file_path:
-        print("No file selected. Exiting.")
+    if not file_paths:
+        print("No files selected. Exiting.")
         sys.exit(0)
 
-    if not os.path.exists(file_path):
-        print(f"Error: File not found: {file_path}")
-        sys.exit(1)
+    # Filter non-WAV
+    wav_files = [f for f in file_paths if f.lower().endswith(".wav")]
+    skipped   = [f for f in file_paths if not f.lower().endswith(".wav")]
+    if skipped:
+        print(f"\n  ⚠️  Skipping {len(skipped)} non-WAV file(s).")
+    if not wav_files:
+        print("  No valid WAV files selected. Exiting.")
+        sys.exit(0)
 
-    if not file_path.lower().endswith(".wav"):
-        print("Error: Only WAV files are supported.")
-        sys.exit(1)
+    print(f"\n  {len(wav_files)} file(s) selected:")
+    for f in wav_files:
+        print(f"    • {os.path.basename(f)}")
 
-    cleaned_path = remove_dead_air(file_path)
+    # ── Step 2: Choose output folder ─────────
+    print(f"\n  Step 2 — Choose where to save the cleaned files:")
+    default_dir = os.path.dirname(os.path.abspath(wav_files[0]))
+    output_dir  = select_output_folder(default_dir)
 
-    print(f"\nDone. File saved at:\n  {cleaned_path}")
+    if not output_dir:
+        print("  No folder selected — saving next to original files.")
+        output_dir = None  # handled per-file below
+
+    # ── Step 3: Process each file ─────────────
+    print(f"\n  Processing {len(wav_files)} file(s)...\n")
+    results = []
+
+    for i, file_path in enumerate(wav_files, 1):
+        print(f"\n  [{i}/{len(wav_files)}] {os.path.basename(file_path)}")
+
+        # If no output folder chosen, save next to each source file
+        out_dir = output_dir if output_dir else os.path.dirname(os.path.abspath(file_path))
+
+        try:
+            cleaned_path = remove_dead_air(file_path, out_dir)
+            if cleaned_path:
+                results.append(("OK",    file_path, cleaned_path))
+            else:
+                results.append(("SKIP",  file_path, None))
+        except Exception as e:
+            print(f"  ❌ Error: {e}")
+            results.append(("ERROR", file_path, str(e)))
+
+    # ── Summary ───────────────────────────────
+    print(f"\n\n{'='*55}")
+    print(f"  SUMMARY — {len(wav_files)} file(s) processed")
+    print(f"  {'─'*50}")
+    ok    = [r for r in results if r[0] == "OK"]
+    skips = [r for r in results if r[0] == "SKIP"]
+    errs  = [r for r in results if r[0] == "ERROR"]
+
+    for status, src, out in results:
+        icon = "✅" if status == "OK" else ("⚠️ " if status == "SKIP" else "❌")
+        print(f"  {icon} {os.path.basename(src)}")
+        if status == "OK":
+            print(f"       → {os.path.basename(out)}")
+
+    print(f"\n  Done : {len(ok)} cleaned  |  {len(skips)} skipped  |  {len(errs)} errors")
+    print(f"{'='*55}\n")
+
+    # Open output folder once at the end
+    if ok:
+        open_folder(ok[0][2])
+
+    input("  Press Enter to exit...")
 
 
 if __name__ == "__main__":
