@@ -1,20 +1,18 @@
 #!/usr/bin/env python3
 """
-WAV Dead Air Restorer — Python 3.14+
+WAV/MP3 Dead Air Restorer — Python 3.14+
 Dependencies: numpy, soundfile
 
-Input  : 5min cleaned WAV  +  JSON report (from play_audio.py)
-Output : 20min restored WAV — silence re-inserted at original positions
-
-Process:
-  The JSON has a list of removed segments with start_sec / end_sec.
-  We walk through the cleaned audio and insert silence blocks at those
-  exact timestamps to rebuild the original 20min track.
+Accepts cleaned WAV or MP3 as input.
+MP3 is converted to WAV internally before processing.
+Output is always WAV (same format as play_audio.py).
 """
 
 import sys
 import os
 import json
+import wave
+import struct
 
 
 # ──────────────────────────────────────────────
@@ -36,6 +34,68 @@ def check_dependencies():
 
 
 # ──────────────────────────────────────────────
+# MP3 → WAV CONVERSION
+# ──────────────────────────────────────────────
+def mp3_to_wav(mp3_path: str) -> str:
+    """
+    Convert an MP3 file to a temporary WAV file.
+    Tries three methods in order:
+      1. audioop-free pydub workaround via ffmpeg subprocess
+      2. Direct ffmpeg subprocess call (no Python lib needed)
+      3. Raises a clear error if neither works
+    Returns the path to the temporary WAV file.
+    """
+    import tempfile
+    import subprocess
+    import shutil
+
+    tmp_wav = tempfile.mktemp(suffix="_restored_input.wav")
+
+    print(f"  Converting MP3 → WAV (temporary)...")
+
+    # Method 1: ffmpeg via subprocess (most reliable on Python 3.14)
+    if shutil.which("ffmpeg"):
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-i", mp3_path, tmp_wav],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if result.returncode == 0 and os.path.exists(tmp_wav):
+            print(f"  ✅ MP3 converted via ffmpeg")
+            return tmp_wav
+
+    # Method 2: static-ffmpeg (auto-downloads ffmpeg binary)
+    try:
+        import static_ffmpeg
+        static_ffmpeg.add_paths()
+        if shutil.which("ffmpeg"):
+            result = subprocess.run(
+                ["ffmpeg", "-y", "-i", mp3_path, tmp_wav],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            if result.returncode == 0 and os.path.exists(tmp_wav):
+                print(f"  ✅ MP3 converted via static-ffmpeg")
+                return tmp_wav
+    except ImportError:
+        pass
+
+    # Nothing worked
+    print("\n  ┌─────────────────────────────────────────────────┐")
+    print("  │  MP3 conversion requires ffmpeg.                │")
+    print("  │                                                 │")
+    print("  │  Option A — install static-ffmpeg (easiest):   │")
+    print("  │    pip install static-ffmpeg                    │")
+    print("  │                                                 │")
+    print("  │  Option B — install ffmpeg system-wide:        │")
+    print("  │    1. Download from https://www.gyan.dev/ffmpeg │")
+    print("  │    2. Extract to C:\\ffmpeg                      │")
+    print("  │    3. Add C:\\ffmpeg\\bin to System PATH          │")
+    print("  └─────────────────────────────────────────────────┘")
+    sys.exit(1)
+
+
+# ──────────────────────────────────────────────
 # FILE PICKERS
 # ──────────────────────────────────────────────
 def pick_file(title: str, filetypes: list) -> str:
@@ -45,22 +105,6 @@ def pick_file(title: str, filetypes: list) -> str:
     root.withdraw()
     root.attributes("-topmost", True)
     path = filedialog.askopenfilename(title=title, filetypes=filetypes)
-    root.destroy()
-    return path
-
-def save_dialog(default_name: str, initial_dir: str) -> str:
-    import tkinter as tk
-    from tkinter import filedialog
-    root = tk.Tk()
-    root.withdraw()
-    root.attributes("-topmost", True)
-    path = filedialog.asksaveasfilename(
-        title="Save Restored Audio As",
-        initialdir=initial_dir,
-        initialfile=default_name,
-        defaultextension=".wav",
-        filetypes=[("WAV Files", "*.wav"), ("All Files", "*.*")],
-    )
     root.destroy()
     return path
 
@@ -92,11 +136,26 @@ def open_folder(path: str):
 # ──────────────────────────────────────────────
 # RESTORE CORE
 # ──────────────────────────────────────────────
-def restore(cleaned_wav: str, report_json: str) -> str:
+def restore(input_audio: str, report_json: str) -> str:
     import numpy as np
     import soundfile as sf
 
     print(f"\n{'='*55}")
+
+    # ── Handle MP3 input ──────────────────────
+    ext = os.path.splitext(input_audio)[1].lower()
+    tmp_wav_path = None
+
+    if ext == ".mp3":
+        print(f"  Input format   : MP3 — converting to WAV first")
+        tmp_wav_path = mp3_to_wav(input_audio)
+        wav_to_read  = tmp_wav_path
+    elif ext == ".wav":
+        print(f"  Input format   : WAV — loading directly")
+        wav_to_read  = input_audio
+    else:
+        print(f"  ERROR: Unsupported format '{ext}'. Use WAV or MP3.")
+        sys.exit(1)
 
     # ── Load JSON ─────────────────────────────
     print(f"  Reading report : {os.path.basename(report_json)}")
@@ -110,9 +169,9 @@ def restore(cleaned_wav: str, report_json: str) -> str:
     print(f"  Original duration  : {fmt(original_dur_s)}  ({original_dur_s:.3f}s)")
     print(f"  Silence blocks     : {len(segments)}")
 
-    # ── Load cleaned audio ────────────────────
-    print(f"  Reading audio  : {os.path.basename(cleaned_wav)}")
-    cleaned, file_sr = sf.read(cleaned_wav, dtype="float32")
+    # ── Load audio ────────────────────────────
+    print(f"  Reading audio  : {os.path.basename(input_audio)}")
+    cleaned, file_sr = sf.read(wav_to_read, dtype="float32")
 
     if file_sr != sample_rate:
         print(f"  ⚠️  Sample rate mismatch — using file rate ({file_sr} Hz)")
@@ -122,64 +181,43 @@ def restore(cleaned_wav: str, report_json: str) -> str:
     is_stereo     = cleaned.ndim == 2
     print(f"  Cleaned duration   : {fmt(cleaned_dur_s)}  ({cleaned_dur_s:.3f}s)")
 
-    # ──────────────────────────────────────────
-    # CORE LOGIC
-    #
-    # We walk the original 20min timeline from left to right.
-    # The JSON tells us WHEN silence blocks were removed.
-    # Everything between those silence blocks = speech from cleaned audio.
-    #
-    # Timeline example:
-    #   0s ──[silence 0→8s]──[speech]──[silence 14→22s]──[speech]──[silence]── 20min
-    #
-    # We read the cleaned audio sequentially and interleave silence blocks
-    # at their original timestamps.
-    # ──────────────────────────────────────────
-
+    # ── Walk timeline and rebuild ─────────────
     print(f"\n  Rebuilding original {fmt(original_dur_s)} timeline...")
 
-    output_parts  = []   # list of numpy arrays to concatenate at the end
-    cleaned_pos   = 0    # sample cursor into the cleaned audio
-    timeline_pos  = 0.0  # current position in the original timeline (seconds)
+    output_parts = []
+    cleaned_pos  = 0
+    timeline_pos = 0.0
 
     for seg in segments:
         seg_start = seg["start_sec"]
         seg_end   = seg["end_sec"]
-        seg_dur   = seg["end_sec"] - seg["start_sec"]
+        seg_dur   = seg_end - seg_start
 
-        # ── Speech gap BEFORE this silence block ──
-        # From current timeline position up to where silence starts
+        # Speech gap BEFORE this silence
         speech_dur = seg_start - timeline_pos
-
         if speech_dur > 0.001:
             speech_samples = int(round(speech_dur * sample_rate))
-            end_pos        = cleaned_pos + speech_samples
-
-            # Guard: don't read past end of cleaned audio
-            end_pos = min(end_pos, len(cleaned))
-            chunk   = cleaned[cleaned_pos:end_pos]
-            output_parts.append(chunk)
+            end_pos        = min(cleaned_pos + speech_samples, len(cleaned))
+            output_parts.append(cleaned[cleaned_pos:end_pos])
             cleaned_pos = end_pos
 
-        # ── Silence block ──────────────────────
+        # Silence block (zeros)
         silence_samples = int(round(seg_dur * sample_rate))
         if silence_samples > 0:
             if is_stereo:
-                silence = np.zeros((silence_samples, cleaned.shape[1]), dtype="float32")
+                output_parts.append(np.zeros((silence_samples, cleaned.shape[1]), dtype="float32"))
             else:
-                silence = np.zeros(silence_samples, dtype="float32")
-            output_parts.append(silence)
+                output_parts.append(np.zeros(silence_samples, dtype="float32"))
 
         timeline_pos = seg_end
 
-    # ── Remaining speech AFTER last silence block ──
+    # Remaining speech after last silence
     remaining_dur = original_dur_s - timeline_pos
     if remaining_dur > 0.001 and cleaned_pos < len(cleaned):
-        remaining_samples = int(round(remaining_dur * sample_rate))
-        end_pos           = min(cleaned_pos + remaining_samples, len(cleaned))
+        end_pos = min(cleaned_pos + int(round(remaining_dur * sample_rate)), len(cleaned))
         output_parts.append(cleaned[cleaned_pos:end_pos])
 
-    # ── Concatenate everything ────────────────
+    # ── Concatenate ───────────────────────────
     restored     = np.concatenate(output_parts, axis=0)
     restored_dur = len(restored) / sample_rate
     diff_ms      = abs(restored_dur - original_dur_s) * 1000
@@ -189,25 +227,20 @@ def restore(cleaned_wav: str, report_json: str) -> str:
     print(f"  Difference         : {diff_ms:.1f} ms  "
           f"{'✅' if diff_ms < 100 else '⚠️ '}")
 
-    # ── Save ──────────────────────────────────
-    stem         = os.path.splitext(os.path.basename(cleaned_wav))[0]
+    # ── Save output ───────────────────────────
+    # Always save next to the original input file
+    stem         = os.path.splitext(os.path.basename(input_audio))[0]
     default_name = stem.replace("_cleaned", "_restored") + ".wav"
-    initial_dir  = os.path.dirname(os.path.abspath(cleaned_wav))
-
-    # print(f"\n  Opening save dialog...")
-    # out_path = save_dialog(default_name, initial_dir)
-
-    # if not out_path:
-    #     out_path = os.path.join(initial_dir, default_name)
-    #     print(f"  Cancelled — saving to default location.")
-
-    out_path = os.path.join(initial_dir, default_name)
-    print(f"\n  Saving automatically...")
+    out_path     = os.path.join(os.path.dirname(os.path.abspath(input_audio)), default_name)
 
     sf.write(out_path, restored, sample_rate)
-
     print(f"\n  ✅ Restored audio saved : {out_path}")
     print(f"{'='*55}\n")
+
+    # ── Cleanup temp WAV if we made one ───────
+    if tmp_wav_path and os.path.exists(tmp_wav_path):
+        os.remove(tmp_wav_path)
+        print(f"  Temp WAV removed.")
 
     open_folder(out_path)
     return out_path
@@ -234,7 +267,7 @@ def play_audio(path: str):
 # MAIN
 # ──────────────────────────────────────────────
 def main():
-    print("\n🔄 WAV Dead Air Restorer")
+    print("\n🔄 WAV/MP3 Dead Air Restorer")
     print("─" * 30)
     print("  Give me the CLEANED audio + JSON report")
     print("  and I will give you the original track back.")
@@ -242,34 +275,39 @@ def main():
 
     check_dependencies()
 
-    # ── Step 1: Pick cleaned WAV ──────────────
-    print("\n  Step 1 — Select the CLEANED WAV  (e.g. interview_cleaned.wav):")
-    cleaned_wav = pick_file(
-        "Select the Cleaned WAV file",
-        [("WAV Files", "*.wav"), ("All Files", "*.*")]
+    # ── Pick cleaned audio (WAV or MP3) ───────
+    print("\n  Step 1 — Select the CLEANED audio file (WAV or MP3):")
+    cleaned_audio = pick_file(
+        "Select the Cleaned Audio file",
+        [
+            ("Audio Files", "*.wav *.mp3"),
+            ("WAV Files",   "*.wav"),
+            ("MP3 Files",   "*.mp3"),
+            ("All Files",   "*.*"),
+        ]
     )
-    if not cleaned_wav:
+    if not cleaned_audio:
         print("No file selected. Exiting.")
         sys.exit(0)
 
-    # ── Step 2: Find or pick JSON ─────────────
-    auto_json = os.path.splitext(cleaned_wav)[0] + "_report.json"
+    # ── Auto-find JSON or pick manually ───────
+    auto_json = os.path.splitext(cleaned_audio)[0] + "_report.json"
     if os.path.exists(auto_json):
         print(f"\n  ✅ Auto-found report: {os.path.basename(auto_json)}")
         report_json = auto_json
     else:
-        print("\n  Step 2 — Select the JSON report  (e.g. interview_cleaned_report.json):")
+        print("\n  Step 2 — Select the JSON report:")
         report_json = pick_file(
             "Select the JSON Report",
             [("JSON Files", "*.json"), ("All Files", "*.*")]
         )
+
     if not report_json or not os.path.exists(report_json):
         print("No report file found. Exiting.")
         sys.exit(0)
 
     # ── Restore ───────────────────────────────
-    restored_path = restore(cleaned_wav, report_json)
-
+    restored_path = restore(cleaned_audio, report_json)
     print(f"\nDone. File saved at:\n  {restored_path}")
 
 
