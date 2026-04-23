@@ -6,20 +6,23 @@ Python 3.14+
 Pipeline position:
   play_audio.py  →  [voice_clone.py]  →  restore_audio.py
 
-What this script does:
-  1. Takes the cleaned WAV (output of play_audio.py)
-  2. Lists your ElevenLabs voice library so you can pick a voice
-  3. Sends the audio to ElevenLabs Speech-to-Speech API
-  4. Saves the voice-changed MP3 next to the input file
-
-Dependencies:
-  pip install requests python-dotenv
+- Output filename is IDENTICAL to input filename
+  (so restore_audio.py can auto-find the JSON report)
+- Default settings match ElevenLabs UI defaults
+- Voice search by name
 """
 
 import sys
 import os
 import json
 import requests
+
+# ── Default settings (matching ElevenLabs UI screenshot) ──────────────
+DEFAULT_MODEL       = "eleven_multilingual_sts_v2"
+DEFAULT_STABILITY   = 0.65
+DEFAULT_SIMILARITY  = 0.75
+DEFAULT_STYLE       = 0.10
+DEFAULT_BG_NOISE    = False
 
 
 # ──────────────────────────────────────────────
@@ -43,13 +46,6 @@ def check_dependencies():
 # LOAD API KEY
 # ──────────────────────────────────────────────
 def load_api_key() -> str:
-    """
-    Load API key from:
-      1. .env file in same folder as this script
-      2. Environment variable ELEVENLABS_API_KEY
-      3. User prompt (typed in terminal)
-    """
-    # Try .env file
     env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
     if os.path.exists(env_path):
         with open(env_path) as f:
@@ -61,21 +57,18 @@ def load_api_key() -> str:
                         print("  ✅ API key loaded from .env")
                         return key
 
-    # Try environment variable
     key = os.environ.get("ELEVENLABS_API_KEY", "").strip()
     if key:
         print("  ✅ API key loaded from environment")
         return key
 
-    # Ask user
     print("\n  No API key found in .env or environment.")
-    print("  Get your key from: https://elevenlabs.io/app/settings/api-keys")
+    print("  Get your key: https://elevenlabs.io/app/settings/api-keys")
     key = input("  Paste your ElevenLabs API key: ").strip()
     if not key:
         print("  No key entered. Exiting.")
         sys.exit(1)
 
-    # Offer to save it
     save = input("  Save to .env for future use? [Y/n]: ").strip().lower()
     if save in ("", "y", "yes"):
         with open(env_path, "a") as f:
@@ -86,7 +79,7 @@ def load_api_key() -> str:
 
 
 # ──────────────────────────────────────────────
-# FILE PICKERS
+# FILE / FOLDER PICKERS
 # ──────────────────────────────────────────────
 def pick_files(title: str, filetypes: list) -> list:
     import tkinter as tk
@@ -123,62 +116,112 @@ def open_folder(path: str):
 # ELEVENLABS — LIST VOICES
 # ──────────────────────────────────────────────
 def list_voices(api_key: str) -> list:
-    """Fetch all voices in the user's ElevenLabs voice library."""
     url  = "https://api.elevenlabs.io/v1/voices"
     resp = requests.get(url, headers={"xi-api-key": api_key}, timeout=30)
-
     if resp.status_code != 200:
         print(f"  ERROR fetching voices: {resp.status_code} — {resp.text}")
         sys.exit(1)
-
-    voices = resp.json().get("voices", [])
-    return voices
+    return resp.json().get("voices", [])
 
 
 # ──────────────────────────────────────────────
-# ELEVENLABS — VOICE CHANGER (Speech-to-Speech)
+# VOICE SEARCH + SELECTION
+# ──────────────────────────────────────────────
+def select_voice(voices: list) -> dict:
+    """
+    Show full voice list. Let user search by name or pick by number.
+    Returns the selected voice dict.
+    """
+    def display(voice_list, label=""):
+        if label:
+            print(f"\n  {label}")
+        print(f"\n  {'#':<4} {'Name':<32} {'Category':<16} {'Voice ID'}")
+        print(f"  {'─'*76}")
+        for i, v in enumerate(voice_list, 1):
+            print(f"  {i:<4} {v['name']:<32} {v.get('category',''):<16} {v['voice_id']}")
+
+    display(voices, f"Your voice library — {len(voices)} voice(s)")
+
+    while True:
+        print()
+        query = input(
+            "  Type a name to search, a number to select, or press Enter to see all: "
+        ).strip()
+
+        # Empty → show all again
+        if query == "":
+            display(voices)
+            continue
+
+        # Number → direct pick from full list
+        if query.isdigit():
+            idx = int(query)
+            if 1 <= idx <= len(voices):
+                return voices[idx - 1]
+            print(f"  Please enter a number between 1 and {len(voices)}.")
+            continue
+
+        # Text → search by name (case-insensitive)
+        matches = [v for v in voices if query.lower() in v["name"].lower()]
+        if not matches:
+            print(f"  No voices found matching '{query}'. Try again.")
+            continue
+
+        if len(matches) == 1:
+            print(f"  Found: {matches[0]['name']}  ({matches[0]['voice_id']})")
+            confirm = input("  Use this voice? [Y/n]: ").strip().lower()
+            if confirm in ("", "y", "yes"):
+                return matches[0]
+            continue
+
+        display(matches, f"{len(matches)} result(s) for '{query}'")
+        pick = input("  Enter number from results above (or press Enter to search again): ").strip()
+        if pick.isdigit() and 1 <= int(pick) <= len(matches):
+            return matches[int(pick) - 1]
+
+
+# ──────────────────────────────────────────────
+# ELEVENLABS — SPEECH-TO-SPEECH
 # ──────────────────────────────────────────────
 def voice_change(
     api_key: str,
     audio_path: str,
     voice_id: str,
     output_path: str,
-    model_id: str = "eleven_english_sts_v2",
-    stability: float = 0.5,
-    similarity_boost: float = 0.75,
-    remove_bg_noise: bool = False,
+    model_id: str        = DEFAULT_MODEL,
+    stability: float     = DEFAULT_STABILITY,
+    similarity: float    = DEFAULT_SIMILARITY,
+    style: float         = DEFAULT_STYLE,
+    remove_bg: bool      = DEFAULT_BG_NOISE,
 ):
-    """
-    Send a WAV file to ElevenLabs Speech-to-Speech and save the result.
-    Max file size: 50 MB. Max duration: ~5 minutes (ElevenLabs limit).
-    """
     url = f"https://api.elevenlabs.io/v1/speech-to-speech/{voice_id}"
 
     file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
-    print(f"  Uploading        : {os.path.basename(audio_path)}  ({file_size_mb:.1f} MB)")
-    print(f"  Voice ID         : {voice_id}")
-    print(f"  Model            : {model_id}")
-    print(f"  Stability        : {stability}")
-    print(f"  Similarity boost : {similarity_boost}")
-    print(f"  Remove BG noise  : {remove_bg_noise}")
+    print(f"  Uploading  : {os.path.basename(audio_path)}  ({file_size_mb:.1f} MB)")
+    print(f"  Model      : {model_id}")
+    print(f"  Stability  : {stability}  |  Similarity: {similarity}  |  Style: {style}  |  BG noise: {remove_bg}")
     print(f"  Sending to ElevenLabs...")
 
     voice_settings = json.dumps({
         "stability":        stability,
-        "similarity_boost": similarity_boost,
+        "similarity_boost": similarity,
+        "style":            style,
+        "use_speaker_boost": True,
     })
 
     with open(audio_path, "rb") as f:
-        files = {"audio": (os.path.basename(audio_path), f, "audio/wav")}
-        data  = {
-            "model_id":             model_id,
-            "voice_settings":       voice_settings,
-            "remove_background_noise": str(remove_bg_noise).lower(),
-            "output_format":        "mp3_44100_128",
-        }
-        headers = {"xi-api-key": api_key}
-
-        resp = requests.post(url, headers=headers, files=files, data=data, timeout=300)
+        resp = requests.post(
+            url,
+            headers={"xi-api-key": api_key},
+            files={"audio": (os.path.basename(audio_path), f, "audio/wav")},
+            data={
+                "model_id":              model_id,
+                "voice_settings":        voice_settings,
+                "remove_background_noise": str(remove_bg).lower(),
+                "output_format":         "mp3_44100_128",
+            },
+            timeout=300,
+        )
 
     if resp.status_code != 200:
         try:
@@ -188,12 +231,10 @@ def voice_change(
         print(f"\n  ERROR {resp.status_code}: {err}")
         return None
 
-    # Save the returned MP3
     with open(output_path, "wb") as out:
         out.write(resp.content)
 
-    size_kb = len(resp.content) / 1024
-    print(f"  ✅ Done  — received {size_kb:.0f} KB")
+    print(f"  ✅ Done  — {len(resp.content)//1024} KB received")
     return output_path
 
 
@@ -201,8 +242,7 @@ def voice_change(
 # HELPERS
 # ──────────────────────────────────────────────
 def fmt_size(path: str) -> str:
-    mb = os.path.getsize(path) / (1024 * 1024)
-    return f"{mb:.1f} MB"
+    return f"{os.path.getsize(path)/1024/1024:.1f} MB"
 
 
 # ──────────────────────────────────────────────
@@ -216,11 +256,10 @@ def main():
 
     check_dependencies()
 
-    # ── API key ───────────────────────────────
     print()
     api_key = load_api_key()
 
-    # ── Step 1: Select cleaned audio files ────
+    # ── Step 1: Select cleaned WAV files ──────
     print("\n  Step 1 — Select CLEANED WAV file(s)  [hold Ctrl for multiple]:")
     audio_files = pick_files(
         "Select Cleaned WAV file(s)",
@@ -239,44 +278,39 @@ def main():
     for f in wav_files:
         print(f"    • {os.path.basename(f)}  ({fmt_size(f)})")
 
-    # ── Step 2: Fetch + pick voice ────────────
+    # ── Step 2: Fetch voices + search/pick ────
     print("\n  Step 2 — Fetching your ElevenLabs voice library...")
     voices = list_voices(api_key)
-
     if not voices:
-        print("  No voices found in your library.")
-        print("  Add voices at: https://elevenlabs.io/app/voice-library")
+        print("  No voices found. Add voices at: https://elevenlabs.io/app/voice-library")
         sys.exit(1)
 
-    print(f"\n  Found {len(voices)} voice(s):\n")
-    print(f"  {'#':<4} {'Name':<30} {'Category':<16} {'Voice ID'}")
-    print(f"  {'─'*75}")
-    for i, v in enumerate(voices, 1):
-        print(f"  {i:<4} {v['name']:<30} {v.get('category',''):<16} {v['voice_id']}")
-
-    print()
-    while True:
-        choice = input("  Enter voice number to use: ").strip()
-        if choice.isdigit() and 1 <= int(choice) <= len(voices):
-            selected_voice = voices[int(choice) - 1]
-            break
-        print(f"  Please enter a number between 1 and {len(voices)}.")
-
+    selected_voice = select_voice(voices)
     voice_id   = selected_voice["voice_id"]
     voice_name = selected_voice["name"]
-    print(f"\n  Selected: {voice_name}  ({voice_id})")
+    print(f"\n  ✅ Voice selected: {voice_name}  ({voice_id})")
 
-    # ── Step 3: Settings ──────────────────────
-    print("\n  Step 3 — Voice settings  (press Enter to use defaults)")
+    # ── Step 3: Settings — defaults applied, user can override ────────
+    print(f"\n  Step 3 — Voice settings")
+    print(f"  (Defaults match ElevenLabs UI — press Enter to keep each default)\n")
 
-    stab_input = input("  Stability [0.0–1.0, default 0.5]: ").strip()
-    stability  = float(stab_input) if stab_input else 0.5
+    print(f"  Model options (speech-to-speech only):")
+    print(f"    1. eleven_multilingual_sts_v2  (default — multilingual)")
+    print(f"    2. eleven_english_sts_v2        (English only — faster)")
+    model_pick = input(f"  Model [1]: ").strip()
+    model_id = "eleven_english_sts_v2" if model_pick == "2" else DEFAULT_MODEL
 
-    sim_input        = input("  Similarity boost [0.0–1.0, default 0.75]: ").strip()
-    similarity_boost = float(sim_input) if sim_input else 0.75
+    s = input(f"  Stability         [default {DEFAULT_STABILITY}]: ").strip()
+    stability = float(s) if s else DEFAULT_STABILITY
 
-    bg_input        = input("  Remove background noise? [y/N]: ").strip().lower()
-    remove_bg_noise = bg_input in ("y", "yes")
+    sim = input(f"  Similarity boost  [default {DEFAULT_SIMILARITY}]: ").strip()
+    similarity = float(sim) if sim else DEFAULT_SIMILARITY
+
+    sty = input(f"  Style exaggeration [default {DEFAULT_STYLE}]: ").strip()
+    style = float(sty) if sty else DEFAULT_STYLE
+
+    bg = input(f"  Remove background noise? [y/N]: ").strip().lower()
+    remove_bg = bg in ("y", "yes")
 
     # ── Step 4: Output folder ─────────────────
     print("\n  Step 4 — Choose output folder:")
@@ -284,9 +318,9 @@ def main():
     output_dir  = pick_folder("Choose folder to save voice-changed files", default_dir)
     if not output_dir:
         output_dir = default_dir
-        print(f"  No folder chosen — saving next to source files.")
+        print("  No folder chosen — saving next to source files.")
 
-    # ── Step 5: Process each file ─────────────
+    # ── Step 5: Process ───────────────────────
     print(f"\n  Processing {len(wav_files)} file(s) with voice '{voice_name}'...\n")
     results = []
 
@@ -294,34 +328,37 @@ def main():
         print(f"\n  [{i}/{len(wav_files)}] {os.path.basename(wav_path)}")
         print(f"  {'='*55}")
 
+        # ── Output filename = same as input filename ──────────────────
+        # This is CRITICAL so restore_audio.py can find the JSON report.
+        # e.g.  interview_cleaned.wav  →  interview_cleaned.mp3
         stem        = os.path.splitext(os.path.basename(wav_path))[0]
-        out_name    = f"{stem}_voiced_{voice_name.replace(' ', '_')}.mp3"
-        output_path = os.path.join(output_dir, out_name)
+        output_path = os.path.join(output_dir, stem + ".mp3")
 
         result = voice_change(
-            api_key      = api_key,
-            audio_path   = wav_path,
-            voice_id     = voice_id,
-            output_path  = output_path,
-            stability    = stability,
-            similarity_boost = similarity_boost,
-            remove_bg_noise  = remove_bg_noise,
+            api_key    = api_key,
+            audio_path = wav_path,
+            voice_id   = voice_id,
+            output_path= output_path,
+            model_id   = model_id,
+            stability  = stability,
+            similarity = similarity,
+            style      = style,
+            remove_bg  = remove_bg,
         )
 
         if result:
             results.append(("OK",    wav_path, output_path))
-            print(f"  Saved to : {output_path}")
+            print(f"  Saved  : {output_path}")
         else:
             results.append(("ERROR", wav_path, "API call failed"))
 
     # ── Summary ───────────────────────────────
-    print(f"\n\n{'='*55}")
-    print(f"  SUMMARY — {len(wav_files)} file(s) processed")
-    print(f"  {'─'*50}")
-
     ok   = [r for r in results if r[0] == "OK"]
     errs = [r for r in results if r[0] == "ERROR"]
 
+    print(f"\n\n{'='*55}")
+    print(f"  SUMMARY — {len(wav_files)} file(s) processed")
+    print(f"  {'─'*50}")
     for status, src, out in results:
         icon = "✅" if status == "OK" else "❌"
         print(f"  {icon} {os.path.basename(src)}")
