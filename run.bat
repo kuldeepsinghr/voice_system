@@ -9,24 +9,28 @@ echo  ==========================================
 echo   WAV Dead Air Tool
 echo  ==========================================
 echo.
-echo   1.  Remove dead air from WAV file
-echo   2.  Restore original audio from cleaned WAV
-echo   3.  Check / install dependencies
-echo   4.  Exit
+echo   1.  Remove dead air       (play_audio.py)
+echo   2.  ElevenLabs voice change  (voice_clone.py)
+echo   3.  Restore original audio  (restore_audio.py)
+echo   4.  Check / install dependencies
+echo   5.  Exit
 echo.
-set /p CHOICE=  Select option (1-4): 
+echo   Pipeline:  1  --^>  2  --^>  3
+echo.
+set /p CHOICE=  Select option (1-5): 
 
 if "%CHOICE%"=="1" goto RUN_PLAY
-if "%CHOICE%"=="2" goto RUN_RESTORE
-if "%CHOICE%"=="3" goto INSTALL_DEPS
-if "%CHOICE%"=="4" goto EXIT
+if "%CHOICE%"=="2" goto RUN_VOICE
+if "%CHOICE%"=="3" goto RUN_RESTORE
+if "%CHOICE%"=="4" goto INSTALL_DEPS
+if "%CHOICE%"=="5" goto EXIT
 echo   Invalid choice. Try again.
 timeout /t 1 >nul
 goto MENU
 
 
 :: ─────────────────────────────────────────
-:: FIND PYTHON  (sets PYTHON_CMD, no subroutine)
+:: FIND PYTHON
 :: ─────────────────────────────────────────
 :FIND_PYTHON
 set PYTHON_CMD=
@@ -70,7 +74,7 @@ goto %AFTER_FIND%
 
 
 :: ─────────────────────────────────────────
-:: RUN PLAY_AUDIO
+:: 1 — REMOVE DEAD AIR
 :: ─────────────────────────────────────────
 :RUN_PLAY
 set AFTER_FIND=DO_PLAY
@@ -79,22 +83,17 @@ goto FIND_PYTHON
 :DO_PLAY
 echo.
 echo  [OK] Using: !PY_VER!  (!PYTHON_CMD!)
-
 if not exist "%~dp0play_audio.py" (
-    echo.
     echo  [ERROR] play_audio.py not found in %~dp0
-    echo.
-    pause
-    goto MENU
+    pause & goto MENU
 )
-
 echo  [RUN] Starting dead air remover...
 echo.
 !PYTHON_CMD! "%~dp0play_audio.py"
 if !ERRORLEVEL! NEQ 0 (
     echo.
     echo  [ERROR] Script exited with an error.
-    echo  Run option 3 to check dependencies.
+    echo  Run option 4 to check dependencies.
 )
 echo.
 pause
@@ -102,7 +101,34 @@ goto MENU
 
 
 :: ─────────────────────────────────────────
-:: RUN RESTORE_AUDIO
+:: 2 — ELEVENLABS VOICE CHANGE
+:: ─────────────────────────────────────────
+:RUN_VOICE
+set AFTER_FIND=DO_VOICE
+goto FIND_PYTHON
+
+:DO_VOICE
+echo.
+echo  [OK] Using: !PY_VER!  (!PYTHON_CMD!)
+if not exist "%~dp0voice_clone.py" (
+    echo  [ERROR] voice_clone.py not found in %~dp0
+    pause & goto MENU
+)
+echo  [RUN] Starting ElevenLabs voice changer...
+echo.
+!PYTHON_CMD! "%~dp0voice_clone.py"
+if !ERRORLEVEL! NEQ 0 (
+    echo.
+    echo  [ERROR] Script exited with an error.
+    echo  Check your API key and run option 4 to check dependencies.
+)
+echo.
+pause
+goto MENU
+
+
+:: ─────────────────────────────────────────
+:: 3 — RESTORE ORIGINAL AUDIO
 :: ─────────────────────────────────────────
 :RUN_RESTORE
 set AFTER_FIND=DO_RESTORE
@@ -111,22 +137,17 @@ goto FIND_PYTHON
 :DO_RESTORE
 echo.
 echo  [OK] Using: !PY_VER!  (!PYTHON_CMD!)
-
 if not exist "%~dp0restore_audio.py" (
-    echo.
     echo  [ERROR] restore_audio.py not found in %~dp0
-    echo.
-    pause
-    goto MENU
+    pause & goto MENU
 )
-
 echo  [RUN] Starting audio restorer...
 echo.
 !PYTHON_CMD! "%~dp0restore_audio.py"
 if !ERRORLEVEL! NEQ 0 (
     echo.
     echo  [ERROR] Script exited with an error.
-    echo  Run option 3 to check dependencies.
+    echo  Run option 4 to check dependencies.
 )
 echo.
 pause
@@ -134,7 +155,7 @@ goto MENU
 
 
 :: ─────────────────────────────────────────
-:: INSTALL DEPENDENCIES
+:: 4 — INSTALL DEPENDENCIES
 :: ─────────────────────────────────────────
 :INSTALL_DEPS
 set AFTER_FIND=DO_INSTALL
@@ -159,6 +180,14 @@ if !ERRORLEVEL! NEQ 0 (
     echo  Installing soundfile...
     !PYTHON_CMD! -m pip install soundfile --quiet
     if !ERRORLEVEL! NEQ 0 ( echo  [WARN] soundfile install may have failed. ) else ( echo  soundfile installed OK. )
+)
+
+echo  Checking requests...
+!PYTHON_CMD! -c "import requests; print('  requests ' + requests.__version__ + ' OK')" 2>nul
+if !ERRORLEVEL! NEQ 0 (
+    echo  Installing requests...
+    !PYTHON_CMD! -m pip install requests --quiet
+    if !ERRORLEVEL! NEQ 0 ( echo  [WARN] requests install may have failed. ) else ( echo  requests installed OK. )
 )
 
 echo  Checking static-ffmpeg...
