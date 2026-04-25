@@ -132,7 +132,7 @@ def ts_to_sec(ts):
     return int(h)*3600+int(m)*60+int(s)+int(ms)/1000
 
 def banner(title, i=None, total=None):
-    prefix = f"[{i}/{total}] " if i else ""
+    prefix = f"[{i}/{total}] " if i is not None else ""
     print(f"\n{'─'*55}")
     print(f"  {prefix}{title}")
     print(f"{'─'*55}")
@@ -316,12 +316,19 @@ def voice_change_api(api_key, audio_path, voice_id, output_path,
         try:    err = r.json()
         except: err = r.text
         print(f"  ERROR {r.status_code}: {err}")
-        return None
+        return None, 0
 
     with open(output_path, "wb") as f:
         f.write(r.content)
+
+    # ElevenLabs returns credit info in response headers
+    used      = int(r.headers.get("xi-credits-used",      r.headers.get("character-cost", 0)))
+    remaining = r.headers.get("xi-credits-remaining", r.headers.get("character-quota-remaining", None))
+
     print(f"  ✅ Voice clone : {os.path.basename(output_path)}  ({len(r.content)//1024} KB)")
-    return output_path
+    print(f"  💳 Credits used: {used:,}" + (f"  |  remaining: {int(remaining):,}" if remaining else ""))
+
+    return output_path, used
 
 
 # ══════════════════════════════════════════════
@@ -468,6 +475,7 @@ def main():
     # ── Run pipeline per file ──────────────────
     print(f"\n  Running pipeline on {len(wav_files)} file(s)...\n")
     results = []
+    total_credits = 0
 
     for i, wav_path in enumerate(wav_files, 1):
         banner(os.path.basename(wav_path), i, len(wav_files))
@@ -479,13 +487,13 @@ def main():
             print(f"\n  > Step 1 — Removing dead air")
             cleaned_path, json_path = remove_dead_air(wav_path)
             if not cleaned_path:
-                results.append(("SKIP", wav_path, None, "No speech detected"))
+                results.append(("SKIP", wav_path, None, "No speech detected", 0))
                 continue
 
             # ── Step 2: Voice clone ───────────
             print(f"\n  > Step 2 — Voice cloning  [{voice_name}]")
-            voiced_path = os.path.splitext(cleaned_path)[0] + ".mp3"
-            result = voice_change_api(
+            voiced_path = os.path.join(src_dir, src_stem + "_cleaned.mp3")
+            result, credits_used = voice_change_api(
                 api_key     = api_key,
                 audio_path  = cleaned_path,
                 voice_id    = voice_id,
@@ -496,8 +504,9 @@ def main():
                 style       = style,
                 remove_bg   = remove_bg,
             )
+            total_credits += credits_used
             if not result:
-                results.append(("ERROR", wav_path, None, "ElevenLabs API failed"))
+                results.append(("ERROR", wav_path, None, "ElevenLabs API failed", 0))
                 continue
 
             # ── Step 3: Restore ───────────────
@@ -515,14 +524,14 @@ def main():
 
             restored_path = restore_audio(voiced_path, json_path, save_path)
             if not restored_path:
-                results.append(("ERROR", wav_path, None, "Restore failed"))
+                results.append(("ERROR", wav_path, None, "Restore failed", credits_used))
                 continue
 
-            results.append(("OK", wav_path, restored_path, ""))
+            results.append(("OK", wav_path, restored_path, "", credits_used))
 
         except Exception as e:
             print(f"  ERROR: {e}")
-            results.append(("ERROR", wav_path, None, str(e)))
+            results.append(("ERROR", wav_path, None, str(e), 0))
 
     # ── Summary ───────────────────────────────
     ok   = [r for r in results if r[0] == "OK"]
@@ -531,7 +540,7 @@ def main():
     print(f"\n\n" + "="*55)
     print(f"  PIPELINE COMPLETE — {len(wav_files)} file(s)")
     print(f"  " + "-"*50)
-    for status, src, out, msg in results:
+    for status, src, out, msg, credits in results:
         icon = "[OK]" if status == "OK" else ("[SKIP]" if status == "SKIP" else "[ERR]")
         print(f"\n  {icon} {os.path.basename(src)}")
         if status == "OK":
@@ -541,10 +550,14 @@ def main():
             print(f"       {stem}_cleaned.mp3         - voice cloned")
             print(f"       {os.path.basename(out)}  <-- final restored output")
             print(f"       Saved to: {os.path.dirname(out)}")
+            if credits:
+                print(f"       💳 Credits used: {credits:,}")
         else:
             print(f"       {msg}")
 
     print(f"\n  Done: {len(ok)} complete  |  {len(errs)} failed")
+    if total_credits:
+        print(f"  💳 Total credits used this run: {total_credits:,}")
     print("="*55 + "\n")
 
     if ok:
