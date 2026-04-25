@@ -369,26 +369,32 @@ def api_pipeline():
     if not files or not voice_id:
         return jsonify({"error":"files and voice_id required"}),400
 
+    # Save all uploaded files to disk NOW while the request is still open
+    # (Flask closes file streams after the request ends — threads run after)
+    saved_files = []
+    for f in files:
+        stem   = Path(f.filename).stem
+        wav_in = str(UPLOAD_DIR / f.filename)
+        f.save(wav_in)
+        saved_files.append((f.filename, stem, wav_in))
+
     jid = new_job()
 
     def run():
         results = []
-        for f in files:
-            stem     = Path(f.filename).stem
-            wav_in   = str(UPLOAD_DIR / f.filename)
+        for filename, stem, wav_in in saved_files:
             cleaned  = str(OUTPUT_DIR / f"{stem}_cleaned.wav")
             json_rpt = str(OUTPUT_DIR / f"{stem}_cleaned_report.json")
             voiced   = str(OUTPUT_DIR / f"{stem}_cleaned.mp3")
             restored = str(OUTPUT_DIR / f"{stem}_restored.wav")
 
-            f.save(wav_in)
-            job_log(jid, f"\n── [{files.index(f)+1}/{len(files)}] {f.filename}", "info")
+            job_log(jid, f"\n── [{saved_files.index((filename,stem,wav_in))+1}/{len(saved_files)}] {filename}", "info")
 
             # Step 1
             job_log(jid, "> Step 1 — Removing dead air")
             r1 = run_deadair(wav_in, cleaned, jid)
             if not r1[0]:
-                results.append({"file":f.filename,"status":"skip","reason":"No speech detected"})
+                results.append({"file":filename,"status":"skip","reason":"No speech detected"})
                 continue
 
             # Step 2
@@ -397,18 +403,18 @@ def api_pipeline():
                            model_id=model_id, stability=stability,
                            similarity=similarity, style=style, remove_bg=remove_bg)
             if not r2:
-                results.append({"file":f.filename,"status":"error","reason":"API failed"})
+                results.append({"file":filename,"status":"error","reason":"API failed"})
                 continue
 
             # Step 3
             job_log(jid, "> Step 3 — Restoring original length")
             r3 = run_restore(voiced, json_rpt, restored, jid)
             if not r3:
-                results.append({"file":f.filename,"status":"error","reason":"Restore failed"})
+                results.append({"file":filename,"status":"error","reason":"Restore failed"})
                 continue
 
             results.append({
-                "file":       f.filename,
+                "file":       filename,
                 "status":     "ok",
                 "restored":   Path(restored).name,
                 "credits":    r2[1] if len(r2)>1 else "?",
