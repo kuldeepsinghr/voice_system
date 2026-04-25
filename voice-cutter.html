@@ -7,336 +7,155 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@700;800&display=swap" rel="stylesheet"/>
 <style>
   :root {
-    --bg:        #0d0f12;
-    --surface:   #13161b;
-    --card:      #1a1e26;
-    --border:    #252b36;
-    --accent:    #4fffb0;
-    --accent2:   #4fc4ff;
-    --warn:      #ffb84f;
-    --danger:    #ff5f5f;
-    --text:      #e8edf5;
-    --muted:     #5a6478;
-    --mono:      'DM Mono', monospace;
-    --head:      'Syne', sans-serif;
+    --bg:#0d0f12;--surface:#13161b;--card:#1a1e26;--border:#252b36;
+    --accent:#4fffb0;--accent2:#4fc4ff;--warn:#ffb84f;--danger:#ff5f5f;
+    --text:#e8edf5;--muted:#5a6478;--mono:'DM Mono',monospace;--head:'Syne',sans-serif;
   }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13px;min-height:100vh;display:flex;flex-direction:column}
+  body::before{content:'';position:fixed;inset:0;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");pointer-events:none;z-index:0}
+  .app{position:relative;z-index:1;display:flex;flex-direction:column;min-height:100vh;max-width:860px;margin:0 auto;padding:0 24px 48px}
 
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  /* HEADER */
+  header{display:flex;align-items:center;justify-content:space-between;padding:28px 0 24px;border-bottom:1px solid var(--border);margin-bottom:32px}
+  .logo{display:flex;align-items:center;gap:14px}
+  .logo-icon{width:38px;height:38px;background:var(--accent);border-radius:10px;display:flex;align-items:center;justify-content:center;animation:pulse-logo 3s ease-in-out infinite}
+  @keyframes pulse-logo{0%,100%{box-shadow:0 0 0 0 rgba(79,255,176,.4)}50%{box-shadow:0 0 0 8px rgba(79,255,176,0)}}
+  .logo-icon svg{width:20px;height:20px}
+  .logo-text{font-family:var(--head);font-size:22px;font-weight:800;letter-spacing:-.5px}
+  .logo-text span{color:var(--accent)}
+  .badge{font-size:10px;color:var(--muted);background:var(--card);border:1px solid var(--border);border-radius:4px;padding:3px 8px}
+  .header-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+  .api-pill{display:flex;align-items:center;gap:7px;font-size:11px;padding:5px 12px;border-radius:20px;border:1px solid var(--border);background:var(--surface);color:var(--muted);transition:all .3s}
+  .api-pill.ok{border-color:rgba(79,255,176,.4);color:var(--accent);background:rgba(79,255,176,.06)}
+  .api-pill.err{border-color:rgba(255,95,95,.4);color:var(--danger);background:rgba(255,95,95,.06)}
+  .api-pill-dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex-shrink:0;transition:all .3s}
+  .api-pill.ok .api-pill-dot{background:var(--accent);box-shadow:0 0 6px var(--accent);animation:pulse-dot 2s ease-in-out infinite}
+  .api-pill.err .api-pill-dot{background:var(--danger)}
+  @keyframes pulse-dot{0%,100%{opacity:1}50%{opacity:.4}}
 
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--mono);
-    font-size: 13px;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-  }
+  /* TABS */
+  .tabs{display:flex;gap:4px;margin-bottom:28px;background:var(--surface);border-radius:10px;padding:4px;border:1px solid var(--border)}
+  .tab{flex:1;padding:8px 12px;border-radius:7px;background:none;border:none;color:var(--muted);font-family:var(--mono);font-size:12px;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:7px}
+  .tab.active{background:var(--card);color:var(--text);box-shadow:0 1px 4px rgba(0,0,0,.4)}
+  .tab:hover:not(.active){color:var(--text)}
+  .tab-dot{width:6px;height:6px;border-radius:50%;background:var(--muted)}
+  .tab.active .tab-dot{background:var(--accent);box-shadow:0 0 6px var(--accent)}
 
-  /* ── NOISE TEXTURE ── */
-  body::before {
-    content: '';
-    position: fixed; inset: 0;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
-    pointer-events: none; z-index: 0;
-  }
+  /* LABELS & CARDS */
+  .section-label{font-size:10px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px}
 
-  /* ── LAYOUT ── */
-  .app { position: relative; z-index: 1; display: flex; flex-direction: column; min-height: 100vh; max-width: 860px; margin: 0 auto; padding: 0 24px 48px; }
+  /* DROPZONE */
+  .dropzone{border:1.5px dashed var(--border);border-radius:10px;padding:28px 20px;text-align:center;cursor:pointer;transition:all .2s;position:relative}
+  .dropzone:hover,.dropzone.drag-over{border-color:var(--accent);background:rgba(79,255,176,.04)}
+  .dropzone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
+  .dropzone-icon{font-size:28px;margin-bottom:8px}
+  .dropzone-text{color:var(--muted);line-height:1.6}
+  .dropzone-text strong{color:var(--text);display:block;margin-bottom:2px}
+  .file-list{margin-top:12px;display:flex;flex-direction:column;gap:6px}
+  .file-item{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:9px 14px;display:flex;align-items:center;gap:10px;animation:slide-in .15s ease}
+  @keyframes slide-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+  .file-item-name{flex:1;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .file-item-size{color:var(--muted);font-size:11px;flex-shrink:0}
+  .file-item-remove{background:none;border:none;color:var(--muted);cursor:pointer;padding:2px 5px;border-radius:4px;transition:all .15s}
+  .file-item-remove:hover{color:var(--danger);background:rgba(255,95,95,.1)}
 
-  /* ── HEADER ── */
-  header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 28px 0 24px;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 32px;
-  }
-  .logo { display: flex; align-items: center; gap: 14px; }
-  .logo-icon {
-    width: 38px; height: 38px;
-    background: var(--accent);
-    border-radius: 10px;
-    display: flex; align-items: center; justify-content: center;
-    animation: pulse-logo 3s ease-in-out infinite;
-  }
-  @keyframes pulse-logo {
-    0%,100% { box-shadow: 0 0 0 0 rgba(79,255,176,.4); }
-    50%      { box-shadow: 0 0 0 8px rgba(79,255,176,0); }
-  }
-  .logo-icon svg { width: 20px; height: 20px; }
-  .logo-text { font-family: var(--head); font-size: 22px; font-weight: 800; letter-spacing: -0.5px; }
-  .logo-text span { color: var(--accent); }
-  .badge { font-family: var(--mono); font-size: 10px; color: var(--muted); background: var(--card); border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; }
+  /* VOICE */
+  .voice-search{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:9px 14px;color:var(--text);font-family:var(--mono);font-size:12px;outline:none;margin-bottom:12px;transition:border-color .2s}
+  .voice-search:focus{border-color:var(--accent)}
+  .voice-search::placeholder{color:var(--muted)}
+  .voice-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .voice-card{background:var(--surface);border:1.5px solid var(--border);border-radius:9px;padding:12px 14px;cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:10px}
+  .voice-card:hover{border-color:var(--accent);background:rgba(79,255,176,.04)}
+  .voice-card.selected{border-color:var(--accent);background:rgba(79,255,176,.08)}
+  .voice-card.selected .voice-dot{background:var(--accent);box-shadow:0 0 8px var(--accent)}
+  .voice-dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0;transition:all .2s}
+  .voice-name{color:var(--text);font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .voice-cat{color:var(--muted);font-size:10px;margin-top:2px}
+  .voice-empty{color:var(--muted);font-size:12px;padding:12px 0;text-align:center;grid-column:1/-1}
 
-  /* ── TABS ── */
-  .tabs { display: flex; gap: 4px; margin-bottom: 28px; background: var(--surface); border-radius: 10px; padding: 4px; border: 1px solid var(--border); }
-  .tab {
-    flex: 1; padding: 8px 12px; border-radius: 7px;
-    background: none; border: none; color: var(--muted);
-    font-family: var(--mono); font-size: 12px; cursor: pointer;
-    transition: all .2s; display: flex; align-items: center; justify-content: center; gap: 7px;
-  }
-  .tab.active { background: var(--card); color: var(--text); box-shadow: 0 1px 4px rgba(0,0,0,.4); }
-  .tab:hover:not(.active) { color: var(--text); }
-  .tab-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
-  .tab.active .tab-dot { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+  /* SETTINGS */
+  .settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .setting-row{display:flex;flex-direction:column;gap:6px}
+  .setting-label{color:var(--muted);font-size:11px;display:flex;justify-content:space-between}
+  .setting-label span{color:var(--text);font-size:12px}
+  input[type=range]{-webkit-appearance:none;width:100%;height:4px;background:var(--border);border-radius:2px;outline:none;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--accent);cursor:pointer;transition:box-shadow .15s}
+  input[type=range]::-webkit-slider-thumb:hover{box-shadow:0 0 0 4px rgba(79,255,176,.2)}
+  .model-select{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:9px 14px;color:var(--text);font-family:var(--mono);font-size:12px;outline:none;cursor:pointer;transition:border-color .2s;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%235a6478'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center}
+  .model-select:focus{border-color:var(--accent2)}
+  .model-select option{background:var(--card)}
+  .divider{border:none;border-top:1px solid var(--border);margin:4px 0 16px}
+  .toggle-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0}
+  .toggle-label{color:var(--text);font-size:12px}
+  .toggle-sub{color:var(--muted);font-size:11px;margin-top:1px}
+  .toggle{width:38px;height:21px;background:var(--border);border-radius:11px;position:relative;cursor:pointer;border:none;transition:background .2s;flex-shrink:0}
+  .toggle::after{content:'';position:absolute;top:3px;left:3px;width:15px;height:15px;border-radius:50%;background:#fff;transition:transform .2s}
+  .toggle.on{background:var(--accent)}
+  .toggle.on::after{transform:translateX(17px)}
 
-  /* ── SECTION LABEL ── */
-  .section-label {
-    font-family: var(--mono); font-size: 10px; font-weight: 500;
-    color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px;
-    margin-bottom: 10px;
-  }
+  /* RUN BUTTON */
+  .btn-run{width:100%;padding:14px;background:var(--accent);color:#0d0f12;border:none;border-radius:10px;font-family:var(--head);font-size:15px;font-weight:800;cursor:pointer;letter-spacing:.3px;transition:all .2s}
+  .btn-run:hover{background:#7fffca;box-shadow:0 0 24px rgba(79,255,176,.3);transform:translateY(-1px)}
+  .btn-run:disabled{background:var(--muted);cursor:not-allowed;transform:none;box-shadow:none}
+  .btn-inner{display:flex;align-items:center;justify-content:center;gap:8px}
 
-  /* ── CARD ── */
-  .card {
-    background: var(--card); border: 1px solid var(--border);
-    border-radius: 12px; padding: 20px;
-    margin-bottom: 16px;
-  }
-  .card-title { font-family: var(--head); font-size: 14px; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
-  .card-title .step-num {
-    width: 22px; height: 22px; border-radius: 6px;
-    background: rgba(79,255,176,.12); border: 1px solid rgba(79,255,176,.3);
-    color: var(--accent); font-size: 11px;
-    display: flex; align-items: center; justify-content: center;
-    font-family: var(--mono);
-  }
+  /* PROGRESS */
+  .progress-card{display:none}
+  .progress-card.visible{display:block}
+  .progress-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .progress-title{font-family:var(--head);font-size:14px;font-weight:700}
+  .progress-badge{font-size:10px;padding:3px 9px;border-radius:20px;background:rgba(79,255,176,.12);color:var(--accent);border:1px solid rgba(79,255,176,.3)}
+  .progress-badge.running{animation:blink 1.2s ease-in-out infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
 
-  /* ── DROP ZONE ── */
-  .dropzone {
-    border: 1.5px dashed var(--border); border-radius: 10px;
-    padding: 28px 20px; text-align: center; cursor: pointer;
-    transition: all .2s; position: relative;
-  }
-  .dropzone:hover, .dropzone.drag-over {
-    border-color: var(--accent); background: rgba(79,255,176,.04);
-  }
-  .dropzone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-  .dropzone-icon { font-size: 28px; margin-bottom: 8px; }
-  .dropzone-text { color: var(--muted); line-height: 1.6; }
-  .dropzone-text strong { color: var(--text); display: block; margin-bottom: 2px; }
+  .steps-track{display:flex;align-items:center;margin-bottom:18px}
+  .step-pip{display:flex;flex-direction:column;align-items:center;flex:1;position:relative}
+  .step-pip::before{content:'';position:absolute;top:13px;left:50%;right:-50%;height:1px;background:var(--border);z-index:0}
+  .step-pip:last-child::before{display:none}
+  .pip-circle{width:26px;height:26px;border-radius:50%;border:1.5px solid var(--border);background:var(--surface);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--muted);z-index:1;transition:all .3s}
+  .step-pip.done .pip-circle{border-color:var(--accent);background:rgba(79,255,176,.12);color:var(--accent)}
+  .step-pip.active .pip-circle{border-color:var(--accent2);background:rgba(79,196,255,.12);color:var(--accent2);animation:spin-ring .8s linear infinite}
+  @keyframes spin-ring{to{transform:rotate(360deg)}}
+  .pip-label{font-size:10px;color:var(--muted);margin-top:5px;text-align:center}
+  .step-pip.done .pip-label{color:var(--accent)}
+  .step-pip.active .pip-label{color:var(--accent2)}
 
-  /* ── FILE LIST ── */
-  .file-list { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
-  .file-item {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 8px; padding: 9px 14px;
-    display: flex; align-items: center; gap: 10px;
-    animation: slide-in .15s ease;
-  }
-  @keyframes slide-in { from { opacity:0; transform: translateY(-4px); } to { opacity:1; transform: none; } }
-  .file-item-icon { color: var(--accent2); font-size: 14px; }
-  .file-item-name { flex: 1; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .file-item-size { color: var(--muted); font-size: 11px; flex-shrink: 0; }
-  .file-item-remove { background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px 5px; border-radius: 4px; transition: all .15s; }
-  .file-item-remove:hover { color: var(--danger); background: rgba(255,95,95,.1); }
+  .log-box{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:14px;max-height:220px;overflow-y:auto;font-family:var(--mono);font-size:11px;line-height:1.7}
+  .log-box::-webkit-scrollbar{width:4px}
+  .log-box::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+  .log-line{color:var(--muted)}
+  .log-line.ok{color:var(--accent)}
+  .log-line.err{color:var(--danger)}
+  .log-line.info{color:var(--accent2)}
+  .log-line.warn{color:var(--warn)}
 
-  /* ── VOICE SECTION ── */
-  .voice-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .voice-card {
-    background: var(--surface); border: 1.5px solid var(--border);
-    border-radius: 9px; padding: 12px 14px; cursor: pointer;
-    transition: all .2s; display: flex; align-items: center; gap: 10px;
-  }
-  .voice-card:hover { border-color: var(--accent); background: rgba(79,255,176,.04); }
-  .voice-card.selected { border-color: var(--accent); background: rgba(79,255,176,.08); }
-  .voice-card.selected .voice-dot { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
-  .voice-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; transition: all .2s; }
-  .voice-info { flex: 1; min-width: 0; }
-  .voice-name { color: var(--text); font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .voice-cat { color: var(--muted); font-size: 10px; margin-top: 2px; }
-  .voice-search {
-    width: 100%; background: var(--surface); border: 1px solid var(--border);
-    border-radius: 8px; padding: 9px 14px; color: var(--text);
-    font-family: var(--mono); font-size: 12px; outline: none; margin-bottom: 12px;
-    transition: border-color .2s;
-  }
-  .voice-search:focus { border-color: var(--accent); }
-  .voice-search::placeholder { color: var(--muted); }
+  /* CREDITS */
+  .credits-bar{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-top:12px;display:none;align-items:center;justify-content:space-between;gap:16px}
+  .credit-item{display:flex;flex-direction:column;gap:2px}
+  .credit-label{font-size:10px;color:var(--muted)}
+  .credit-value{font-size:16px;font-family:var(--head);font-weight:700}
+  .credit-value.accent{color:var(--accent)}
+  .credit-value.accent2{color:var(--accent2)}
+  .credit-divider{width:1px;height:32px;background:var(--border)}
 
-  /* ── API KEY ── */
-  .api-row { display: flex; gap: 8px; }
-  .input-field {
-    flex: 1; background: var(--surface); border: 1px solid var(--border);
-    border-radius: 8px; padding: 9px 14px; color: var(--text);
-    font-family: var(--mono); font-size: 12px; outline: none; transition: border-color .2s;
-  }
-  .input-field:focus { border-color: var(--accent2); }
-  .input-field::placeholder { color: var(--muted); }
-  .btn-small {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 8px; padding: 9px 14px; color: var(--muted);
-    font-family: var(--mono); font-size: 12px; cursor: pointer; transition: all .15s;
-    white-space: nowrap;
-  }
-  .btn-small:hover { border-color: var(--accent2); color: var(--accent2); }
-  .api-status { margin-top: 8px; font-size: 11px; color: var(--muted); }
-  .api-status.ok  { color: var(--accent); }
-  .api-status.err { color: var(--danger); }
+  /* SUMMARY */
+  .summary-list{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+  .summary-item{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:10px}
+  .summary-item.ok{border-left:3px solid var(--accent)}
+  .summary-item.err{border-left:3px solid var(--danger)}
+  .summary-item.skip{border-left:3px solid var(--warn)}
+  .summary-name{flex:1;color:var(--text)}
+  .summary-meta{font-size:11px;color:var(--muted)}
+  .btn-dl{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px 10px;color:var(--accent2);font-family:var(--mono);font-size:11px;cursor:pointer;text-decoration:none;transition:all .15s}
+  .btn-dl:hover{border-color:var(--accent2)}
 
-  /* ── SLIDERS ── */
-  .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-  .setting-row { display: flex; flex-direction: column; gap: 6px; }
-  .setting-label { color: var(--muted); font-size: 11px; display: flex; justify-content: space-between; }
-  .setting-label span { color: var(--text); font-size: 12px; }
-  input[type=range] {
-    -webkit-appearance: none; width: 100%; height: 4px;
-    background: var(--border); border-radius: 2px; outline: none; cursor: pointer;
-  }
-  input[type=range]::-webkit-slider-thumb {
-    -webkit-appearance: none; width: 14px; height: 14px;
-    border-radius: 50%; background: var(--accent); cursor: pointer;
-    transition: box-shadow .15s;
-  }
-  input[type=range]::-webkit-slider-thumb:hover { box-shadow: 0 0 0 4px rgba(79,255,176,.2); }
-
-  /* ── TOGGLE ── */
-  .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; }
-  .toggle-label { color: var(--text); font-size: 12px; }
-  .toggle-sub { color: var(--muted); font-size: 11px; margin-top: 1px; }
-  .toggle {
-    width: 38px; height: 21px; background: var(--border);
-    border-radius: 11px; position: relative; cursor: pointer;
-    border: none; transition: background .2s; flex-shrink: 0;
-  }
-  .toggle::after {
-    content: ''; position: absolute; top: 3px; left: 3px;
-    width: 15px; height: 15px; border-radius: 50%; background: #fff;
-    transition: transform .2s;
-  }
-  .toggle.on { background: var(--accent); }
-  .toggle.on::after { transform: translateX(17px); }
-
-  /* ── MODEL SELECT ── */
-  .model-select {
-    width: 100%; background: var(--surface); border: 1px solid var(--border);
-    border-radius: 8px; padding: 9px 14px; color: var(--text);
-    font-family: var(--mono); font-size: 12px; outline: none; cursor: pointer;
-    transition: border-color .2s; appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%235a6478'/%3E%3C/svg%3E");
-    background-repeat: no-repeat; background-position: right 12px center;
-  }
-  .model-select:focus { border-color: var(--accent2); }
-  .model-select option { background: var(--card); }
-
-  /* ── DIVIDER ── */
-  .divider { border: none; border-top: 1px solid var(--border); margin: 4px 0 16px; }
-
-  /* ── RUN BUTTON ── */
-  .run-section { margin-top: 8px; }
-  .btn-run {
-    width: 100%; padding: 14px;
-    background: var(--accent); color: #0d0f12;
-    border: none; border-radius: 10px;
-    font-family: var(--head); font-size: 15px; font-weight: 800;
-    cursor: pointer; letter-spacing: 0.3px;
-    transition: all .2s; position: relative; overflow: hidden;
-  }
-  .btn-run:hover { background: #7fffca; box-shadow: 0 0 24px rgba(79,255,176,.3); transform: translateY(-1px); }
-  .btn-run:active { transform: none; }
-  .btn-run:disabled { background: var(--muted); cursor: not-allowed; transform: none; box-shadow: none; }
-  .btn-run .btn-inner { display: flex; align-items: center; justify-content: center; gap: 8px; }
-
-  /* ── PROGRESS / LOG ── */
-  .progress-card { display: none; }
-  .progress-card.visible { display: block; }
-  .progress-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-  .progress-title { font-family: var(--head); font-size: 14px; font-weight: 700; }
-  .progress-badge {
-    font-size: 10px; padding: 3px 9px; border-radius: 20px;
-    background: rgba(79,255,176,.12); color: var(--accent); border: 1px solid rgba(79,255,176,.3);
-  }
-  .progress-badge.running { animation: blink 1.2s ease-in-out infinite; }
-  @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:.4; } }
-
-  .steps-track { display: flex; align-items: center; gap: 0; margin-bottom: 18px; }
-  .step-pip { display: flex; flex-direction: column; align-items: center; flex: 1; position: relative; }
-  .step-pip::before {
-    content: ''; position: absolute; top: 13px; left: 50%; right: -50%;
-    height: 1px; background: var(--border); z-index: 0;
-  }
-  .step-pip:last-child::before { display: none; }
-  .pip-circle {
-    width: 26px; height: 26px; border-radius: 50%;
-    border: 1.5px solid var(--border); background: var(--surface);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 10px; color: var(--muted); z-index: 1;
-    transition: all .3s;
-  }
-  .step-pip.done .pip-circle   { border-color: var(--accent); background: rgba(79,255,176,.12); color: var(--accent); }
-  .step-pip.active .pip-circle { border-color: var(--accent2); background: rgba(79,196,255,.12); color: var(--accent2); animation: spin-ring .8s linear infinite; }
-  @keyframes spin-ring { to { transform: rotate(360deg); } }
-  .pip-label { font-size: 10px; color: var(--muted); margin-top: 5px; text-align: center; }
-  .step-pip.done .pip-label   { color: var(--accent); }
-  .step-pip.active .pip-label { color: var(--accent2); }
-
-  .log-box {
-    background: var(--bg); border: 1px solid var(--border);
-    border-radius: 8px; padding: 14px; max-height: 200px; overflow-y: auto;
-    font-family: var(--mono); font-size: 11px; line-height: 1.7;
-  }
-  .log-box::-webkit-scrollbar { width: 4px; }
-  .log-box::-webkit-scrollbar-track { background: transparent; }
-  .log-box::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-  .log-line { color: var(--muted); }
-  .log-line.ok   { color: var(--accent); }
-  .log-line.err  { color: var(--danger); }
-  .log-line.info { color: var(--accent2); }
-  .log-line.warn { color: var(--warn); }
-  .log-cursor::after { content: '▌'; animation: blink 1s step-end infinite; }
-
-  /* ── CREDITS BAR ── */
-  .credits-bar {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 8px; padding: 12px 16px; margin-top: 12px;
-    display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  }
-  .credit-item { display: flex; flex-direction: column; gap: 2px; }
-  .credit-label { font-size: 10px; color: var(--muted); }
-  .credit-value { font-size: 16px; font-family: var(--head); font-weight: 700; }
-  .credit-value.accent  { color: var(--accent); }
-  .credit-value.accent2 { color: var(--accent2); }
-  .credit-divider { width: 1px; height: 32px; background: var(--border); }
-
-  /* ── SUMMARY ── */
-  .summary-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
-  .summary-item {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 8px; padding: 10px 14px;
-    display: flex; align-items: center; gap: 10px;
-  }
-  .summary-item.ok   { border-left: 3px solid var(--accent); }
-  .summary-item.err  { border-left: 3px solid var(--danger); }
-  .summary-item.skip { border-left: 3px solid var(--warn); }
-  .summary-icon { font-size: 14px; }
-  .summary-name { flex: 1; color: var(--text); }
-  .summary-cred { font-size: 11px; color: var(--muted); }
-
-  /* ── PANEL PAGES ── */
-  .panel { display: none; }
-  .panel.active { display: block; }
-
-  /* ── API PILL ── */
-  .header-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
-  .api-pill {
-    display: flex; align-items: center; gap: 7px;
-    font-size: 11px; padding: 5px 12px; border-radius: 20px;
-    border: 1px solid var(--border); background: var(--surface);
-    color: var(--muted); transition: all .3s;
-  }
-  .api-pill.ok  { border-color: rgba(79,255,176,.4); color: var(--accent); background: rgba(79,255,176,.06); }
-  .api-pill.err { border-color: rgba(255,95,95,.4);  color: var(--danger); background: rgba(255,95,95,.06); }
-  .api-pill-dot {
-    width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; transition: all .3s;
-  }
-  .api-pill.ok  .api-pill-dot { background: var(--accent); box-shadow: 0 0 6px var(--accent); animation: pulse-dot 2s ease-in-out infinite; }
-  .api-pill.err .api-pill-dot { background: var(--danger); }
-  @keyframes pulse-dot { 0%,100%{ opacity:1; } 50%{ opacity:.4; } }
-
-  /* ── FOOTER ── */
-  footer { margin-top: auto; padding-top: 24px; border-top: 1px solid var(--border); text-align: center; color: var(--muted); font-size: 11px; }
-  footer a { color: var(--accent2); text-decoration: none; }
+  /* PANELS */
+  .panel{display:none}
+  .panel.active{display:block}
+  footer{margin-top:auto;padding-top:24px;border-top:1px solid var(--border);text-align:center;color:var(--muted);font-size:11px}
+  footer a{color:var(--accent2);text-decoration:none}
 </style>
 </head>
 <body>
@@ -357,62 +176,49 @@
     <div class="header-right">
       <div class="badge">WAV Dead Air Tool</div>
       <div class="api-pill" id="api-pill">
-        <span class="api-pill-dot" id="api-pill-dot"></span>
-        <span id="api-pill-text">Connecting…</span>
+        <span class="api-pill-dot"></span>
+        <span id="api-pill-text">Connecting...</span>
       </div>
     </div>
   </header>
 
-  <!-- ── TABS ── -->
   <div class="tabs">
-    <button class="tab active" onclick="switchTab('pipeline')">
-      <span class="tab-dot"></span> Full Pipeline
-    </button>
-    <button class="tab" onclick="switchTab('deadair')">
-      <span class="tab-dot"></span> Remove Dead Air
-    </button>
-    <button class="tab" onclick="switchTab('clone')">
-      <span class="tab-dot"></span> Voice Clone
-    </button>
-    <button class="tab" onclick="switchTab('restore')">
-      <span class="tab-dot"></span> Restore Audio
-    </button>
+    <button class="tab active" onclick="switchTab('pipeline')"><span class="tab-dot"></span> Full Pipeline</button>
+    <button class="tab" onclick="switchTab('deadair')"><span class="tab-dot"></span> Remove Dead Air</button>
+    <button class="tab" onclick="switchTab('clone')"><span class="tab-dot"></span> Voice Clone</button>
+    <button class="tab" onclick="switchTab('restore')"><span class="tab-dot"></span> Restore Audio</button>
   </div>
 
-  <!-- ════════════════════════════════ FULL PIPELINE ════ -->
+  <!-- FULL PIPELINE PANEL -->
   <div class="panel active" id="panel-pipeline">
 
-    <!-- FILES -->
     <div class="section-label">Source WAV Files</div>
     <div class="card">
-      <div class="dropzone" id="dropzone" ondragover="onDrag(event,true)" ondragleave="onDrag(event,false)" ondrop="onDrop(event)">
+      <div class="dropzone" id="dropzone"
+           ondragover="onDrag(event,true)" ondragleave="onDrag(event,false)" ondrop="onDrop(event)">
         <input type="file" multiple accept=".wav" onchange="addFiles(this.files)"/>
         <div class="dropzone-icon">🎙️</div>
         <div class="dropzone-text">
           <strong>Drop WAV files here</strong>
-          or click to browse &mdash; multi-select with Ctrl
+          or click to browse — hold Ctrl for multiple
         </div>
       </div>
       <div class="file-list" id="file-list"></div>
     </div>
 
-    <!-- VOICE -->
     <div class="section-label">Voice Selection</div>
     <div class="card">
-      <input class="voice-search" id="voice-search" placeholder="🔍  Search voice name…" oninput="filterVoices(this.value)"/>
+      <input class="voice-search" id="voice-search"
+             placeholder="Search voice name..." oninput="filterVoices(this.value)"/>
       <div class="voice-grid" id="voice-grid">
-        <!-- populated by JS -->
-      </div>
-      <div id="voice-hint" style="color:var(--muted);font-size:11px;margin-top:10px;">
-        Voices load automatically from your <code style="color:var(--accent2)">.env</code> API key on startup.
+        <div class="voice-empty" id="voice-loading">Loading voices from server...</div>
       </div>
     </div>
 
-    <!-- SETTINGS -->
     <div class="section-label">Voice Settings</div>
     <div class="card">
-      <div style="margin-bottom:14px;">
-        <div class="setting-label" style="margin-bottom:6px;">Model</div>
+      <div style="margin-bottom:14px">
+        <div class="setting-label" style="margin-bottom:6px">Model</div>
         <select class="model-select" id="model-select">
           <option value="eleven_multilingual_sts_v2">eleven_multilingual_sts_v2 (recommended)</option>
           <option value="eleven_english_sts_v2">eleven_english_sts_v2 (English only)</option>
@@ -422,15 +228,18 @@
       <div class="settings-grid">
         <div class="setting-row">
           <div class="setting-label">Stability <span id="val-stability">0.65</span></div>
-          <input type="range" min="0" max="1" step="0.01" value="0.65" oninput="updateVal('val-stability',this.value)"/>
+          <input type="range" min="0" max="1" step="0.01" value="0.65"
+                 oninput="updateVal('val-stability',this.value)"/>
         </div>
         <div class="setting-row">
           <div class="setting-label">Similarity Boost <span id="val-similarity">0.75</span></div>
-          <input type="range" min="0" max="1" step="0.01" value="0.75" oninput="updateVal('val-similarity',this.value)"/>
+          <input type="range" min="0" max="1" step="0.01" value="0.75"
+                 oninput="updateVal('val-similarity',this.value)"/>
         </div>
         <div class="setting-row">
           <div class="setting-label">Style Exaggeration <span id="val-style">0.10</span></div>
-          <input type="range" min="0" max="1" step="0.01" value="0.10" oninput="updateVal('val-style',this.value)"/>
+          <input type="range" min="0" max="1" step="0.01" value="0.10"
+                 oninput="updateVal('val-style',this.value)"/>
         </div>
       </div>
       <hr class="divider"/>
@@ -443,21 +252,19 @@
       </div>
     </div>
 
-    <!-- RUN -->
-    <div class="run-section">
+    <div style="margin-top:8px">
       <button class="btn-run" id="btn-run" onclick="runPipeline()">
-        <span class="btn-inner">▶ &nbsp; Run Full Pipeline</span>
+        <span class="btn-inner">&#9654; &nbsp; Run Full Pipeline</span>
       </button>
     </div>
 
-    <!-- PROGRESS -->
-    <div class="card progress-card" id="progress-section" style="margin-top:16px;">
+    <!-- PROGRESS SECTION -->
+    <div class="card progress-card" id="progress-section" style="margin-top:16px">
       <div class="progress-header">
         <div class="progress-title">Processing</div>
         <div class="progress-badge running" id="run-badge">RUNNING</div>
       </div>
-
-      <div class="steps-track" id="steps-track">
+      <div class="steps-track">
         <div class="step-pip" id="pip-deadair">
           <div class="pip-circle">1</div>
           <div class="pip-label">Dead Air</div>
@@ -471,10 +278,8 @@
           <div class="pip-label">Restore</div>
         </div>
       </div>
-
       <div class="log-box" id="log-box"></div>
-
-      <div class="credits-bar" id="credits-bar" style="display:none;">
+      <div class="credits-bar" id="credits-bar">
         <div class="credit-item">
           <div class="credit-label">Credits this file</div>
           <div class="credit-value accent" id="cred-file">—</div>
@@ -487,152 +292,123 @@
         <div class="credit-divider"></div>
         <div class="credit-item">
           <div class="credit-label">Remaining</div>
-          <div class="credit-value" id="cred-remaining" style="color:var(--text);">—</div>
+          <div class="credit-value" id="cred-remaining" style="color:var(--text)">—</div>
         </div>
       </div>
-
       <div class="summary-list" id="summary-list"></div>
     </div>
 
-  </div><!-- /panel-pipeline -->
+  </div>
 
-  <!-- ════════════════════════════════ OTHER PANELS ════ -->
+  <!-- OTHER PANELS (info only) -->
   <div class="panel" id="panel-deadair">
-    <div class="card" style="text-align:center;padding:48px 20px;">
-      <div style="font-size:32px;margin-bottom:12px;">✂️</div>
-      <div style="font-family:var(--head);font-size:16px;font-weight:700;margin-bottom:8px;">Remove Dead Air Only</div>
-      <div style="color:var(--muted);line-height:1.7;">Run <code style="color:var(--accent2)">play_audio.py</code> via the .bat launcher,<br/>or switch to <strong>Full Pipeline</strong> tab to run all steps.</div>
+    <div class="card" style="text-align:center;padding:48px 20px">
+      <div style="font-size:32px;margin-bottom:12px">✂️</div>
+      <div style="font-family:var(--head);font-size:16px;font-weight:700;margin-bottom:8px">Remove Dead Air Only</div>
+      <div style="color:var(--muted);line-height:1.7">Use the <strong>Full Pipeline</strong> tab, or run <code style="color:var(--accent2)">play_audio.py</code> via the .bat launcher.</div>
     </div>
   </div>
-
   <div class="panel" id="panel-clone">
-    <div class="card" style="text-align:center;padding:48px 20px;">
-      <div style="font-size:32px;margin-bottom:12px;">🎭</div>
-      <div style="font-family:var(--head);font-size:16px;font-weight:700;margin-bottom:8px;">Voice Clone Only</div>
-      <div style="color:var(--muted);line-height:1.7;">Run <code style="color:var(--accent2)">voice_clone.py</code> via the .bat launcher,<br/>or switch to <strong>Full Pipeline</strong> tab to run all steps.</div>
+    <div class="card" style="text-align:center;padding:48px 20px">
+      <div style="font-size:32px;margin-bottom:12px">🎭</div>
+      <div style="font-family:var(--head);font-size:16px;font-weight:700;margin-bottom:8px">Voice Clone Only</div>
+      <div style="color:var(--muted);line-height:1.7">Use the <strong>Full Pipeline</strong> tab, or run <code style="color:var(--accent2)">voice_clone.py</code> via the .bat launcher.</div>
     </div>
   </div>
-
   <div class="panel" id="panel-restore">
-    <div class="card" style="text-align:center;padding:48px 20px;">
-      <div style="font-size:32px;margin-bottom:12px;">🔄</div>
-      <div style="font-family:var(--head);font-size:16px;font-weight:700;margin-bottom:8px;">Restore Audio Only</div>
-      <div style="color:var(--muted);line-height:1.7;">Run <code style="color:var(--accent2)">restore_audio.py</code> via the .bat launcher,<br/>or switch to <strong>Full Pipeline</strong> tab to run all steps.</div>
+    <div class="card" style="text-align:center;padding:48px 20px">
+      <div style="font-size:32px;margin-bottom:12px">🔄</div>
+      <div style="font-family:var(--head);font-size:16px;font-weight:700;margin-bottom:8px">Restore Audio Only</div>
+      <div style="color:var(--muted);line-height:1.7">Use the <strong>Full Pipeline</strong> tab, or run <code style="color:var(--accent2)">restore_audio.py</code> via the .bat launcher.</div>
     </div>
   </div>
 
   <footer>
-    VoiceCutter UI &mdash; connects to your local <code>pipeline.py</code> &mdash;
-    <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank">ElevenLabs Dashboard ↗</a>
+    VoiceCutter &mdash; local server at <code>localhost:5000</code> &mdash;
+    <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank">ElevenLabs Dashboard</a>
   </footer>
-
-</div><!-- /app -->
+</div>
 
 <script>
-// ── DEMO VOICES (replaced when API key is verified) ──
-const DEMO_VOICES = [
-  { voice_id:"v1", name:"Rachel",   category:"premade" },
-  { voice_id:"v2", name:"Drew",     category:"premade" },
-  { voice_id:"v3", name:"Clyde",    category:"premade" },
-  { voice_id:"v4", name:"Paul",     category:"premade" },
-  { voice_id:"v5", name:"Domi",     category:"premade" },
-  { voice_id:"v6", name:"Dave",     category:"premade" },
-  { voice_id:"v7", name:"Fin",      category:"premade" },
-  { voice_id:"v8", name:"Elli",     category:"premade" },
-];
+const SERVER = 'http://localhost:5000';
+let allVoices = [], selectedVoice = null, selectedFiles = [], bgNoise = false, totalCredits = 0;
 
-let allVoices = [...DEMO_VOICES];
-let selectedVoice = null;
-let selectedFiles = [];
-let bgNoise = false;
-let totalCredits = 0;
-let apiKeyValid = false;
-
-// ── TABS ──
+// ── TABS ──────────────────────────────────────
 function switchTab(name) {
-  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ['pipeline','deadair','clone','restore'][i] === name));
-  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-'+name));
+  const names = ['pipeline','deadair','clone','restore'];
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', names[i]===name));
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id==='panel-'+name));
 }
 
-// ── API KEY — auto-loaded from .env (same as pipeline.py) ──
-// In a real deployment this would be injected by the local Flask server.
-// Here we attempt the ElevenLabs /voices endpoint with the key stored in
-// sessionStorage (set once by the .bat launcher via a query param or local server).
-// Fallback: prompt once, store for the session.
-
-let API_KEY = sessionStorage.getItem('vc_api_key') || '';
-
-async function initApiKey() {
-  setPill('loading', 'Connecting…');
-
-  // If launched by the .bat with ?key=... injected via local server, pick it up
-  const urlKey = new URLSearchParams(location.search).get('key');
-  if (urlKey) { API_KEY = urlKey; sessionStorage.setItem('vc_api_key', API_KEY); }
-
-  if (!API_KEY) {
-    setPill('err', 'No API key — check .env');
-    renderVoices(DEMO_VOICES);
-    return;
-  }
-  await loadVoices();
-}
-
-async function loadVoices() {
-  setPill('loading', 'Loading voices…');
+// ── API STATUS + VOICES ───────────────────────
+async function init() {
+  setPill('loading','Connecting to server...');
   try {
-    const r = await fetch('https://api.elevenlabs.io/v1/voices', {
-      headers: { 'xi-api-key': API_KEY }
-    });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const d = await r.json();
-    allVoices = d.voices || DEMO_VOICES;
-    setPill('ok', `✅ ${allVoices.length} voices ready`);
-    document.getElementById('voice-hint').style.display = 'none';
-    apiKeyValid = true;
+    // Check server is running
+    const ks = await fetch(`${SERVER}/api/key-status`);
+    if (!ks.ok) throw new Error('Server not running');
+    const kd = await ks.json();
+
+    if (!kd.has_key) {
+      setPill('err','No API key in .env');
+      document.getElementById('voice-loading').textContent = 'No API key found — add ELEVENLABS_API_KEY to .env and restart server.';
+      return;
+    }
+
+    // Load voices
+    setPill('loading','Loading voices...');
+    const vr = await fetch(`${SERVER}/api/voices`);
+    if (!vr.ok) throw new Error(`Voices error ${vr.status}`);
+    const vd = await vr.json();
+    allVoices = vd.voices || [];
+    setPill('ok', `${allVoices.length} voices ready`);
     renderVoices(allVoices);
+    document.getElementById('voice-loading').style.display = 'none';
   } catch(e) {
-    setPill('err', `API error — ${e.message}`);
-    renderVoices(DEMO_VOICES);
+    setPill('err', 'Server offline');
+    document.getElementById('voice-loading').textContent =
+      'Cannot connect to server. Make sure server.py is running (run.bat option 1).';
   }
 }
 
 function setPill(state, text) {
-  const pill = document.getElementById('api-pill');
-  pill.className = 'api-pill' + (state === 'ok' ? ' ok' : state === 'err' ? ' err' : '');
+  const p = document.getElementById('api-pill');
+  p.className = 'api-pill' + (state==='ok'?' ok':state==='err'?' err':'');
   document.getElementById('api-pill-text').textContent = text;
 }
 
-// ── FILES ──
+// ── FILES ─────────────────────────────────────
 function addFiles(files) {
   for (const f of files) {
     if (!f.name.toLowerCase().endsWith('.wav')) continue;
-    if (selectedFiles.find(x => x.name === f.name)) continue;
+    if (selectedFiles.find(x => x.name===f.name)) continue;
     selectedFiles.push(f);
   }
   renderFiles();
 }
 function removeFile(i) { selectedFiles.splice(i,1); renderFiles(); }
 function renderFiles() {
-  const list = document.getElementById('file-list');
-  list.innerHTML = selectedFiles.map((f,i) => `
+  document.getElementById('file-list').innerHTML = selectedFiles.map((f,i) => `
     <div class="file-item">
-      <span class="file-item-icon">🎵</span>
+      <span style="color:var(--accent2)">🎵</span>
       <span class="file-item-name">${f.name}</span>
       <span class="file-item-size">${(f.size/1024/1024).toFixed(1)} MB</span>
-      <button class="file-item-remove" onclick="removeFile(${i})">✕</button>
+      <button class="file-item-remove" onclick="removeFile(${i})">x</button>
     </div>`).join('');
 }
-
-// ── DRAG & DROP ──
 function onDrag(e,over) { e.preventDefault(); document.getElementById('dropzone').classList.toggle('drag-over',over); }
 function onDrop(e) { e.preventDefault(); onDrag(e,false); addFiles(e.dataTransfer.files); }
 
-// ── VOICES ──
+// ── VOICES ────────────────────────────────────
+let currentFilter = '';
 function renderVoices(voices) {
-  document.getElementById('voice-grid').innerHTML = voices.slice(0,12).map(v => `
-    <div class="voice-card ${selectedVoice?.voice_id===v.voice_id?'selected':''}" onclick="selectVoice('${v.voice_id}')">
+  const grid = document.getElementById('voice-grid');
+  if (!voices.length) { grid.innerHTML='<div class="voice-empty">No voices found.</div>'; return; }
+  grid.innerHTML = voices.slice(0,12).map(v => `
+    <div class="voice-card ${selectedVoice?.voice_id===v.voice_id?'selected':''}"
+         onclick="selectVoice('${v.voice_id}')">
       <div class="voice-dot"></div>
-      <div class="voice-info">
+      <div style="flex:1;min-width:0">
         <div class="voice-name">${v.name}</div>
         <div class="voice-cat">${v.category||'custom'}</div>
       </div>
@@ -642,133 +418,143 @@ function selectVoice(id) {
   selectedVoice = allVoices.find(v=>v.voice_id===id);
   renderVoices(currentFilter ? allVoices.filter(v=>v.name.toLowerCase().includes(currentFilter)) : allVoices);
 }
-let currentFilter='';
 function filterVoices(q) {
-  currentFilter=q.toLowerCase();
+  currentFilter = q.toLowerCase();
   renderVoices(currentFilter ? allVoices.filter(v=>v.name.toLowerCase().includes(currentFilter)) : allVoices);
 }
-renderVoices(DEMO_VOICES);
 
-// ── CONTROLS ──
+// ── SETTINGS ──────────────────────────────────
 function updateVal(id,v) { document.getElementById(id).textContent = parseFloat(v).toFixed(2); }
-function toggleBg() {
-  bgNoise=!bgNoise;
-  document.getElementById('toggle-bg').classList.toggle('on',bgNoise);
-}
+function toggleBg() { bgNoise=!bgNoise; document.getElementById('toggle-bg').classList.toggle('on',bgNoise); }
 
-// ── LOGGING ──
+// ── LOGGING ───────────────────────────────────
 function log(msg, cls='') {
   const box = document.getElementById('log-box');
-  const line = document.createElement('div');
-  line.className = 'log-line ' + cls;
-  line.textContent = msg;
-  box.appendChild(line);
+  const d = document.createElement('div');
+  d.className = 'log-line ' + cls;
+  d.textContent = msg;
+  box.appendChild(d);
   box.scrollTop = box.scrollHeight;
 }
 function clearLog() { document.getElementById('log-box').innerHTML=''; }
-
-// ── STEPS ──
-function setStep(id, state) { // state: 'active' | 'done' | ''
+function setStep(id, state) {
   const pip = document.getElementById('pip-'+id);
   pip.classList.remove('active','done');
   if(state) pip.classList.add(state);
-  if(state==='done') { const c=pip.querySelector('.pip-circle'); c.textContent='✓'; }
+  if(state==='done') pip.querySelector('.pip-circle').textContent='✓';
 }
 
-// ── CREDITS ──
-function showCredits(fileCred, remaining) {
-  totalCredits += fileCred;
-  document.getElementById('credits-bar').style.display='flex';
-  document.getElementById('cred-file').textContent    = fileCred ? fileCred.toLocaleString() : '—';
-  document.getElementById('cred-total').textContent   = totalCredits.toLocaleString();
-  document.getElementById('cred-remaining').textContent = remaining ? parseInt(remaining).toLocaleString() : '—';
-}
-
-// ── SUMMARY ──
-function addSummary(name, status, credits) {
-  const icons = {ok:'✅', err:'❌', skip:'⚠️'};
-  const item = document.createElement('div');
-  item.className = `summary-item ${status}`;
-  item.innerHTML = `<span class="summary-icon">${icons[status]}</span>
-    <span class="summary-name">${name}</span>
-    <span class="summary-cred">${credits?credits.toLocaleString()+' credits':''}</span>`;
-  document.getElementById('summary-list').appendChild(item);
-}
-
-// ── SIMULATE PIPELINE (real version would call backend) ──
+// ── RUN PIPELINE ──────────────────────────────
 async function runPipeline() {
   if (!selectedFiles.length) { alert('Add at least one WAV file.'); return; }
   if (!selectedVoice)        { alert('Select a voice.'); return; }
 
   const btn = document.getElementById('btn-run');
   btn.disabled = true;
-  btn.querySelector('.btn-inner').textContent = '⏳  Running…';
+  btn.querySelector('.btn-inner').textContent = 'Running...';
 
-  const prog = document.getElementById('progress-section');
-  prog.classList.add('visible');
-  document.getElementById('summary-list').innerHTML='';
-  document.getElementById('run-badge').className='progress-badge running';
-  document.getElementById('run-badge').textContent='RUNNING';
-  totalCredits=0;
+  document.getElementById('progress-section').classList.add('visible');
+  document.getElementById('summary-list').innerHTML = '';
+  document.getElementById('credits-bar').style.display = 'none';
+  document.getElementById('run-badge').className = 'progress-badge running';
+  document.getElementById('run-badge').textContent = 'RUNNING';
+  totalCredits = 0;
   clearLog();
+  setStep('deadair',''); setStep('clone',''); setStep('restore','');
 
-  const model    = document.getElementById('model-select').value;
-  const stability  = parseFloat(document.querySelector('input[oninput*="stability"]').value);
-  const similarity = parseFloat(document.querySelector('input[oninput*="similarity"]').value);
-  const style      = parseFloat(document.querySelector('input[oninput*="style"]').value);
+  log(`Pipeline started — ${selectedFiles.length} file(s)`, 'info');
+  log(`Voice: ${selectedVoice.name}  |  Model: ${document.getElementById('model-select').value}`);
 
-  log(`▶  Pipeline started — ${selectedFiles.length} file(s)`, 'info');
-  log(`   Voice: ${selectedVoice.name}  |  Model: ${model}`);
-  log(`   Stability: ${stability}  Similarity: ${similarity}  Style: ${style}  BG noise: ${bgNoise}`);
+  // Build form data
+  const fd = new FormData();
+  selectedFiles.forEach(f => fd.append('files', f));
+  fd.append('voice_id',   selectedVoice.voice_id);
+  fd.append('model_id',   document.getElementById('model-select').value);
+  fd.append('stability',  document.querySelector('input[oninput*="stability"]').value);
+  fd.append('similarity', document.querySelector('input[oninput*="similarity"]').value);
+  fd.append('style',      document.querySelector('input[oninput*="style"]').value);
+  fd.append('remove_bg',  bgNoise.toString());
 
-  await sleep(400);
-
-  for (let i=0; i<selectedFiles.length; i++) {
-    const f = selectedFiles[i];
-    log(`\n── [${i+1}/${selectedFiles.length}] ${f.name}`, 'info');
-
-    // Step 1
-    setStep('deadair','active'); setStep('clone',''); setStep('restore','');
-    log(`  > Step 1 — Removing dead air…`);
-    await sleep(900);
-    log(`    Duration: ${(Math.random()*30+5).toFixed(1)}s`, '');
-    log(`    Removed: ${(Math.random()*20+5).toFixed(1)}%  cleaned`, '');
-    log(`    ✅ _cleaned.wav + _report.json saved`, 'ok');
-    setStep('deadair','done');
-
-    // Step 2
-    setStep('clone','active');
-    log(`  > Step 2 — Voice cloning [${selectedVoice.name}]…`);
-    await sleep(1200);
-    const cred = Math.floor(Math.random()*8000+3000);
-    const rem  = Math.floor(Math.random()*80000+10000);
-    log(`    ✅ _cleaned.mp3 saved`, 'ok');
-    log(`    💳 Credits used: ${cred.toLocaleString()}  |  remaining: ${rem.toLocaleString()}`, 'warn');
-    showCredits(cred, rem);
-    setStep('clone','done');
-
-    // Step 3
-    setStep('restore','active');
-    log(`  > Step 3 — Restoring original length…`);
-    await sleep(700);
-    log(`    Diff: ${(Math.random()*40).toFixed(1)} ms  ✅`, 'ok');
-    log(`    ✅ _restored.wav saved`, 'ok');
-    setStep('restore','done');
-
-    addSummary(f.name, 'ok', cred);
+  // Start job
+  const startResp = await fetch(`${SERVER}/api/run/pipeline`, { method:'POST', body:fd });
+  if (!startResp.ok) {
+    log('ERROR: Could not start pipeline job', 'err');
+    btn.disabled=false; btn.querySelector('.btn-inner').textContent='▶  Run Full Pipeline';
+    return;
   }
+  const { job_id } = await startResp.json();
+  log(`Job ID: ${job_id}`, 'info');
 
-  log(`\n✅  Pipeline complete — ${selectedFiles.length} file(s) done`, 'ok');
-  document.getElementById('run-badge').className='progress-badge';
-  document.getElementById('run-badge').textContent='DONE';
-  btn.disabled=false;
-  btn.querySelector('.btn-inner').textContent='▶   Run Full Pipeline';
+  // Stream logs via SSE
+  const es = new EventSource(`${SERVER}/api/status/${job_id}`);
+
+  es.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+
+    if (data.done) {
+      es.close();
+      handleDone(data.result);
+      btn.disabled=false;
+      btn.querySelector('.btn-inner').textContent='▶  Run Full Pipeline';
+      document.getElementById('run-badge').className='progress-badge';
+      document.getElementById('run-badge').textContent='DONE';
+      return;
+    }
+
+    // Update step indicators based on log content
+    const m = data.msg || '';
+    if (m.includes('Step 1'))  { setStep('deadair','active'); setStep('clone',''); setStep('restore',''); }
+    if (m.includes('_cleaned.wav') && m.includes('Saved')) { setStep('deadair','done'); }
+    if (m.includes('Step 2'))  { setStep('clone','active'); }
+    if (m.includes('_cleaned.mp3') && m.includes('Saved')) { setStep('clone','done'); }
+    if (m.includes('Step 3'))  { setStep('restore','active'); }
+    if (m.includes('_restored.wav')) { setStep('restore','done'); }
+
+    // Credits
+    if (m.includes('Credits used:')) {
+      const match = m.match(/Credits used: ([\d,]+)\s+\|\s+Remaining: ([\d,]+)/);
+      if (match) {
+        const used = parseInt(match[1].replace(',',''));
+        const rem  = parseInt(match[2].replace(',',''));
+        totalCredits += used;
+        document.getElementById('credits-bar').style.display='flex';
+        document.getElementById('cred-file').textContent    = used.toLocaleString();
+        document.getElementById('cred-total').textContent   = totalCredits.toLocaleString();
+        document.getElementById('cred-remaining').textContent = rem.toLocaleString();
+      }
+    }
+
+    log(m, data.level||'');
+  };
+
+  es.onerror = () => {
+    es.close();
+    log('Connection to server lost.', 'err');
+    btn.disabled=false;
+    btn.querySelector('.btn-inner').textContent='▶  Run Full Pipeline';
+  };
 }
 
-function sleep(ms) { return new Promise(r=>setTimeout(r,ms)); }
+function handleDone(results) {
+  if (!results) return;
+  const list = document.getElementById('summary-list');
+  results.forEach(r => {
+    const d = document.createElement('div');
+    d.className = `summary-item ${r.status}`;
+    const dlBtn = r.status==='ok'
+      ? `<a class="btn-dl" href="${SERVER}/download/${r.restored}" download="${r.restored}">Download</a>`
+      : '';
+    d.innerHTML = `
+      <span style="font-size:14px">${r.status==='ok'?'✅':r.status==='skip'?'⚠️':'❌'}</span>
+      <span class="summary-name">${r.file}</span>
+      <span class="summary-meta">${r.credits?r.credits+' credits':r.reason||''}</span>
+      ${dlBtn}`;
+    list.appendChild(d);
+  });
+}
 
-// ── AUTO-INIT on load ──
-window.addEventListener('DOMContentLoaded', initApiKey);
+// ── START ─────────────────────────────────────
+window.addEventListener('DOMContentLoaded', init);
 </script>
 </body>
 </html>
