@@ -89,6 +89,12 @@ if not exist "%~dp0pipeline.py" (
 )
 echo  [RUN] Starting full pipeline...
 echo.
+
+:: ── Open the UI in the browser with the API key from .env ──
+for /f "tokens=2 delims==" %%K in ('findstr ELEVENLABS_API_KEY "%~dp0.env" 2^>nul') do (
+    start "" "%~dp0voice_cutter_ui.html?key=%%K"
+)
+
 !PYTHON_CMD! "%~dp0pipeline.py"
 if !ERRORLEVEL! NEQ 0 (
     echo.
